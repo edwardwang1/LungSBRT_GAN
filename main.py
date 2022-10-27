@@ -130,11 +130,19 @@ def train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, p
     loss_type = params["loss_type"]
     d_update_ratio = params["d_update_ratio"]
     batch_size = params["batch_size"]
+    generator_attention = params["generator_attention"]
 
-    if alt_condition_volume == "est_dose":
-        g = AttentionGenerator(2, 1)
+    if generator_attention:
+        if alt_condition_volume == "est_dose":
+            g = AttentionGenerator(2, 1)
+        else:
+            g = AttentionGenerator(3, 1)
     else:
-        g = AttentionGenerator(3, 1)
+        if alt_condition_volume == "est_dose":
+            g = Generator(2, 1)
+        else:
+            g = Generator(3, 1)
+
 
     g.cuda()
     d = Discriminator()
@@ -318,6 +326,7 @@ if __name__ == '__main__':
     config = load_config("conf.yml")
     num_epochs = config.NUM_EPOCHS
     batch_size = config.BATCH_SIZE
+    generator_attention = config.GENERATOR_ATTENTION
     data_dir = config.DATA_DIR
     patientList_dir = config.PATIENT_LIST_DIR
 
@@ -342,8 +351,10 @@ if __name__ == '__main__':
                         "loss_type": loss_type,
                         "d_update_ratio": d_update_ratio,
                         "batch_size": batch_size,
+                        "generator_attention": generator_attention,
                     }
-                    exp_name = exp_name_base + str(runNum)
+
+                    exp_name = f'{exp_name_base}_LossType={loss_type}_Alpha={alpha}_Beta={beta}_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}_Attention={generator_attention}_'
                     print(params, exp_name)
                     train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, params)
 

@@ -146,7 +146,6 @@ class Generator(nn.Module):
                 u = self.ups[i]
                 if x.shape != skip_connections[i - 1].shape:
                     difference = np.array(skip_connections[i - 1].shape) - np.array(x.shape)
-                    print("need to pad", difference)
                     #        print(difference)
                     x = nn.functional.pad(x, (difference[3], 0, difference[4], 0, difference[2], 0))
                     #         print("padded", x.shape, skip_connections[i-1].shape)
