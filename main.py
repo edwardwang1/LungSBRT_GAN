@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
-#Custom
+# Custom
 from models import Generator, Discriminator, AttentionGenerator
 from loss import GDL
 from dataset import Volumes, VolumesFromList
@@ -16,6 +16,7 @@ from config import load_config
 
 import matplotlib
 import matplotlib.pyplot as plt
+
 
 def saveImg4by3(v1, v2, v3, v4, save_path):
     f, axarr = plt.subplots(4, 3)
@@ -36,6 +37,7 @@ def saveImg4by3(v1, v2, v3, v4, save_path):
     axarr[3, 2].imshow(v4[:, :, 72])
     plt.savefig(save_path)
     plt.close(f)
+
 
 def saveImgNby3(arrs, ct, save_path, labels=None):
     aspect = 1.
@@ -119,10 +121,11 @@ def saveImgNby3(arrs, ct, save_path, labels=None):
     cax = fig.add_axes([right + 0.035, bottom, 0.035, top - bottom])
     fig.colorbar(sm, cax=cax)
 
-    plt.savefig(save_path, format="png", dpi=1000, bbox_inches = 'tight')
+    plt.savefig(save_path, format="png", dpi=1000, bbox_inches='tight')
     plt.close(fig)
 
-def train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, params):
+
+def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_condition_volume, params):
     num_epochs = params["num_epochs"]
     alpha = params["alpha"]
     beta = params["beta"]
@@ -131,6 +134,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, p
     d_update_ratio = params["d_update_ratio"]
     batch_size = params["batch_size"]
     generator_attention = params["generator_attention"]
+    g_lr = 2e-4
+    d_lr = 2e-4
 
     if generator_attention:
         if alt_condition_volume == "est_dose":
@@ -143,13 +148,12 @@ def train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, p
         else:
             g = Generator(3, 1)
 
-
     g.cuda()
     d = Discriminator()
     d.cuda()
 
-    opt_g = optim.Adam(g.parameters(), lr=2e-4, betas=(0.5, 0.999), )
-    opt_d = optim.Adam(d.parameters(), lr=2e-4, betas=(0.5, 0.999), )
+    opt_g = optim.Adam(g.parameters(), lr=g_lr, betas=(0.5, 0.999), )
+    opt_d = optim.Adam(d.parameters(), lr=d_lr, betas=(0.5, 0.999), )
     # BCE = nn.BCEWithLogitsLoss()
     L2_LOSS = nn.MSELoss().cuda()
 
@@ -157,8 +161,10 @@ def train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, p
         unet_loss = nn.L1Loss().cuda()
     elif loss_type == "gdl":
         unet_loss = GDL()
+    elif loss_type == "l2":
+        unet_loss = nn.MSELoss().cuda()
 
-    #train_dataset = Volumes(train_dir)
+    # train_dataset = Volumes(train_dir)
     train_dataset = VolumesFromList(data_dir, patientList_dir, valFold=3, testingHoldoutFold=4, test=False)
     train_loader = DataLoader(
         train_dataset,
@@ -166,7 +172,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, p
         shuffle=True
     )
 
-    #test_dataset = Volumes(test_dir)
+    # test_dataset = Volumes(test_dir)
     test_dataset = VolumesFromList(data_dir, patientList_dir, valFold=3, testingHoldoutFold=4, test=True)
     test_loader = DataLoader(
         test_dataset,
@@ -176,17 +182,15 @@ def train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, p
 
     g_scaler = torch.cuda.amp.GradScaler()
     d_scaler = torch.cuda.amp.GradScaler()
-    #mkd
-    if not os.path.exists(os.path.join(save_dir, "Logs")):
-        os.mkdir(os.path.join(save_dir, "Logs"))
-    if not os.path.exists(os.path.join(save_dir, "Logs", exp_name)):
-        os.mkdir(os.path.join(save_dir, "Logs", exp_name))
+    # mkd
+    log_path = os.path.join(save_dir, "Logs", exp_name_base, exp_name)
+    if not os.path.exists(log_path):
+        os.makedirs(log_path)
 
-    writer = SummaryWriter(os.path.join(save_dir, "Logs", exp_name))
-    log_path = os.path.join(save_dir, "Logs", exp_name)
+    writer = SummaryWriter(log_path)
 
     epoch_loop = tqdm.tqdm(range(num_epochs + 1))
-    #for epoch in range(num_epochs):
+    # for epoch in range(num_epochs):
     for epoch in epoch_loop:
         g.train()
         for idx, volumes in enumerate(train_loader):
@@ -197,7 +201,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, p
             # elif alt_condition_volume == "ct":
             #     alt_condition = torch.cat((volumes[:, 4, :, :, :].unsqueeze(1).float(), volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
             elif alt_condition_volume == "both":
-                alt_condition = torch.cat((volumes[:, 1, :, :, :].unsqueeze(1).float(), volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
+                alt_condition = torch.cat(
+                    (volumes[:, 1, :, :, :].unsqueeze(1).float(), volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
             else:
                 raise Exception("Check alternative condition volume")
 
@@ -224,26 +229,30 @@ def train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, p
 
             with torch.cuda.amp.autocast():
                 D_fake = d(y_fake, oars)
-                G_loss = L2_LOSS(D_fake, torch.ones_like(D_fake)) + \
-                         alpha * ((1-beta) * unet_loss(y_fake, real_dose) + beta * unet_loss(y_fake * (oars > 0), real_dose * (oars > 0)))
+                G_Dcomp_loss_train = L2_LOSS(D_fake, torch.ones_like(D_fake))
+                UNET_loss_train = unet_loss(y_fake, real_dose)
+                masked_UNET_loss_train = unet_loss(y_fake * (oars > 0), real_dose * (oars > 0))
+                G_loss =  G_Dcomp_loss_train + alpha * ((1 - beta) * UNET_loss_train + beta * masked_UNET_loss_train)
 
             opt_g.zero_grad()
             g_scaler.scale(G_loss).backward()
             g_scaler.step(opt_g)
             g_scaler.update()
 
-        #save weights
-        if not os.path.exists(os.path.join(save_dir, "Weights")):
-            os.mkdir(os.path.join(save_dir, "Weights"))
-        if not os.path.exists(os.path.join(save_dir, "Weights", exp_name)):
-            os.mkdir(os.path.join(save_dir, "Weights", exp_name))
+        # save weights
+        weights_path = os.path.join(save_dir, "Weights", exp_name_base, exp_name)
+        if not os.path.exists(weights_path):
+            os.makedirs(weights_path)
+
         if epoch % 100 == 0 or epoch == num_epochs:
-            torch.save(g.state_dict(), os.path.join(save_dir, "Weights", exp_name, "GeneratorWeightsEpoch" + str(epoch) + ".pth"))
-            torch.save(d.state_dict(), os.path.join(save_dir, "Weights", exp_name, "DiscriminatorWeightsEpoch" + str(epoch) + ".pth"))
+            torch.save(g.state_dict(),
+                       os.path.join(weights_path, "GeneratorWeightsEpoch" + str(epoch) + ".pth"))
+            torch.save(d.state_dict(),
+                       os.path.join(weights_path, "DiscriminatorWeightsEpoch" + str(epoch) + ".pth"))
 
         train_mse_loss = L2_LOSS(y_fake, real_dose)
 
-       #Testing
+        # Testing
         if epoch % interval == 0:
             g.eval()
             G_loss_test = 0
@@ -255,7 +264,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, p
                     # elif alt_condition_volume == "ct":
                     #     alt_condition_test = torch.cat((test_volumes[:, 4, :, :, :].unsqueeze(1).float(), test_volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
                     elif alt_condition_volume == "both":
-                        alt_condition_test = torch.cat((test_volumes[:, 1, :, :, :].unsqueeze(1).float(), test_volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
+                        alt_condition_test = torch.cat((test_volumes[:, 1, :, :, :].unsqueeze(1).float(),
+                                                        test_volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
                     else:
                         raise Exception("Check alternative condition volume")
                     oars_test = test_volumes[:, 2, :, :, :].unsqueeze(1).float()
@@ -273,8 +283,10 @@ def train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, p
                     D_fake_loss_test = L2_LOSS(D_fake_test, torch.zeros_like(D_fake_test))
                     D_loss_test = (D_real_loss_test + D_fake_loss_test) / 2
 
-                    G_loss_test += L2_LOSS(D_fake_test, torch.ones_like(D_fake_test)) + \
-                                           alpha * ((1-beta) * unet_loss(y_fake_test, real_dose_test) + beta * unet_loss(y_fake_test * (oars_test > 0), real_dose_test * (oars_test > 0)))
+                    G_Dcomp_loss_test = L2_LOSS(D_fake_test, torch.ones_like(D_fake_test))
+                    UNET_loss_test = unet_loss(y_fake_test, real_dose_test)
+                    masked_UNET_loss_test = unet_loss(y_fake_test * (oars_test > 0), real_dose_test * (oars_test > 0))
+                    G_loss_test += G_Dcomp_loss_test + alpha * ((1 - beta) * UNET_loss_test + beta * masked_UNET_loss_test)
 
             G_loss_test /= (test_idx + 1)
 
@@ -287,38 +299,47 @@ def train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, p
             oars_test = oars_test.detach().cpu().numpy()
             ct_test = test_volumes[:, 3, :, :, :].unsqueeze(1).float().detach().numpy()
 
-        if not os.path.exists(os.path.join(save_dir, "Images")):
-            os.mkdir(os.path.join(save_dir, "Images"))
-        if not os.path.exists(os.path.join(save_dir, "Images", exp_name)):
-            os.mkdir(os.path.join(save_dir, "Images", exp_name))
+        # if not os.path.exists(os.path.join(save_dir, "Images")):
+        #     os.mkdir(os.path.join(save_dir, "Images"))
+        # if not os.path.exists(os.path.join(save_dir, "Images", exp_name_base)):
+        #     os.mkdir(os.path.join(save_dir, "Images", exp_name_base))
+        images_save_path = os.path.join(save_dir, "Images", exp_name_base, exp_name)
+        if not os.path.exists(images_save_path):
+            os.makedirs(os.path.join(images_save_path))
 
-        #Saves images for all items in last batch
+        # Saves images for all items in last batch
         if epoch % interval == 0:
             for j in range(y_fake_test.shape[0]):
-                saveImgNby3([y_fake_test[j, 0, :, :, :], real_dose_test[j, 0, :, :, :], alt_condition_test[j, 0, :, :, :]],
-                            ct_test[j, 0, :, :, :],
-                            os.path.join(save_dir, "Images", exp_name, str(j) + "_epoch" + str(epoch) + ".png"),
-                            labels=["Fake", "Real", "Condition"])
+                saveImgNby3(
+                    [y_fake_test[j, 0, :, :, :], real_dose_test[j, 0, :, :, :], alt_condition_test[j, 0, :, :, :]],
+                    ct_test[j, 0, :, :, :],
+                    os.path.join(images_save_path, str(j) + "_epoch" + str(epoch) + ".png"),
+                    labels=["Fake", "Real", "Condition"])
 
         # Logging
         writer.add_scalar('LossG/train', G_loss, epoch)
         writer.add_scalar('LossG/test', G_loss_test, epoch)
         writer.add_scalar('LossD/train', D_loss, epoch)
+        writer.add_scalar('LossD/test', D_loss_test, epoch)
         writer.add_scalar('LossD_fake/train', D_fake_loss, epoch)
         writer.add_scalar('LossD_real/train', D_real_loss, epoch)
-        writer.add_scalar('LossD/test', D_loss_test, epoch)
         writer.add_scalar('LossD_fake/test', D_fake_loss_test, epoch)
         writer.add_scalar('LossD_real/test', D_real_loss_test, epoch)
         writer.add_scalar('MSE/train', train_mse_loss, epoch)
         writer.add_scalar('MSE/test', test_mse_loss, epoch)
+        writer.add_scalar('G_D_loss/train', G_Dcomp_loss_train, epoch)
+        writer.add_scalar('G_D_loss/test', G_Dcomp_loss_test, epoch)
+        writer.add_scalar('G_UNET_loss/train', UNET_loss_train, epoch)
+        writer.add_scalar('G_UNET_loss/test', UNET_loss_test, epoch)
+        writer.add_scalar('Masked_G_UNET_loss/train', masked_UNET_loss_train, epoch)
+        writer.add_scalar('Masked_G_UNET_loss/test', masked_UNET_loss_test, epoch)
 
-    # writer.add_hparams({"epochs": num_epochs, "alpha": alpha, "beta": beta, "loss_type": loss_type, "d_update_ratio": d_update_ratio},
-    #                 {"hparam/last_mse_loss_test": test_mse_loss, "hparam/last_g_loss_test": G_loss_test, "hparam/last_d_loss_test": D_loss_test},
-    #                    run_name=os.path.dirname(os.path.realpath(__file__)) + os.sep + log_path)  # <- see here
-
-    writer.add_hparams({"epochs": num_epochs, "alpha": alpha, "beta": beta, "loss_type": loss_type, "d_update_ratio": d_update_ratio},
-                    {"hparam/last_mse_loss_test": test_mse_loss, "hparam/last_g_loss_test": G_loss_test, "hparam/last_d_loss_test": D_loss_test},
-                       run_name = log_path)  # <- see here
+    writer.add_hparams(
+        {"epochs": num_epochs, "alpha": alpha, "beta": beta, "loss_type": loss_type, "d_update_ratio": d_update_ratio,
+         "attention": generator_attention, "batch_size": batch_size, "g_lr": g_lr, "d_lr": g_lr},
+        {"hparam/last_mse_loss_test": test_mse_loss, "hparam/last_g_loss_test": G_loss_test,
+         "hparam/last_d_loss_test": D_loss_test},
+        run_name=log_path)  # <- see here
     writer.close()
 
 if __name__ == '__main__':
@@ -356,8 +377,8 @@ if __name__ == '__main__':
 
                     exp_name = f'{exp_name_base}_LossType={loss_type}_Alpha={alpha}_Beta={beta}_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}_Attention={generator_attention}_'
                     print(params, exp_name)
-                    train(data_dir, patientList_dir, save_dir, exp_name, alt_condition_volume, params)
+                    train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_condition_volume, params)
 
                     runNum += 1
 
-#C:\Users\wanged\Anaconda3\envs\LungGan\Scripts\tensorboard.exe --logdir=
+# C:\Users\wanged\Anaconda3\envs\LungGan\Scripts\tensorboard.exe --logdir=
