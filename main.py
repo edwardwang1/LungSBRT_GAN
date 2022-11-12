@@ -155,14 +155,15 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_cond
     opt_g = optim.Adam(g.parameters(), lr=g_lr, betas=(0.5, 0.999), )
     opt_d = optim.Adam(d.parameters(), lr=d_lr, betas=(0.5, 0.999), )
     # BCE = nn.BCEWithLogitsLoss()
-    L2_LOSS = nn.MSELoss().cuda()
+    L2_LOSS = nn.MSELoss(reduction="mean").cuda()
+    L2_LOSS_sum = nn.MSELoss(reduction="sum").cuda()
 
     if loss_type == "l1":
-        unet_loss = nn.L1Loss().cuda()
+        unet_loss = nn.L1Loss(reduction="sum").cuda()
     elif loss_type == "gdl":
         unet_loss = GDL()
     elif loss_type == "l2":
-        unet_loss = nn.MSELoss().cuda()
+        unet_loss = nn.MSELoss().cuda(reduction="sum")
 
     # train_dataset = Volumes(train_dir)
     train_dataset = VolumesFromList(data_dir, patientList_dir, valFold=3, testingHoldoutFold=4, test=False)
@@ -230,8 +231,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_cond
             with torch.cuda.amp.autocast():
                 D_fake = d(y_fake, oars)
                 G_Dcomp_loss_train = L2_LOSS(D_fake, torch.ones_like(D_fake))
-                UNET_loss_train = unet_loss(y_fake, real_dose)
-                masked_UNET_loss_train = unet_loss(y_fake * (oars > 0), real_dose * (oars > 0))
+                UNET_loss_train = unet_loss(y_fake, real_dose) / torch.numel(y_fake)
+                masked_UNET_loss_train = unet_loss(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
                 G_loss =  G_Dcomp_loss_train + alpha * ((1 - beta) * UNET_loss_train + beta * masked_UNET_loss_train)
 
             opt_g.zero_grad()
@@ -250,7 +251,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_cond
             torch.save(d.state_dict(),
                        os.path.join(weights_path, "DiscriminatorWeightsEpoch" + str(epoch) + ".pth"))
 
-        train_mse_loss = L2_LOSS(y_fake, real_dose)
+        train_mse_loss = L2_LOSS_sum(y_fake, real_dose) / torch.numel(y_fake)
+        masked_train_mse_loss = L2_LOSS_sum(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
 
         # Testing
         if epoch % interval == 0:
@@ -284,13 +286,15 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_cond
                     D_loss_test = (D_real_loss_test + D_fake_loss_test) / 2
 
                     G_Dcomp_loss_test = L2_LOSS(D_fake_test, torch.ones_like(D_fake_test))
-                    UNET_loss_test = unet_loss(y_fake_test, real_dose_test)
-                    masked_UNET_loss_test = unet_loss(y_fake_test * (oars_test > 0), real_dose_test * (oars_test > 0))
+                    UNET_loss_test = unet_loss(y_fake_test, real_dose_test) / torch.numel(y_fake_test)
+                    masked_UNET_loss_test = unet_loss(y_fake_test * (oars_test > 0), real_dose_test * (oars_test > 0)) / torch.sum(oars_test > 0)
                     G_loss_test += G_Dcomp_loss_test + alpha * ((1 - beta) * UNET_loss_test + beta * masked_UNET_loss_test)
 
             G_loss_test /= (test_idx + 1)
 
-            test_mse_loss = L2_LOSS(y_fake_test, real_dose_test)
+            test_mse_loss = L2_LOSS_sum(y_fake_test, real_dose_test) / torch.numel(y_fake_test)
+            masked_test_mse_loss = L2_LOSS_sum(y_fake_test * (oars_test > 0), real_dose_test * (oars_test > 0)) / torch.sum(oars_test > 0)
+
             y_fake_test = y_fake_test.detach().cpu().numpy()
             real_dose_test = real_dose_test.detach().cpu().numpy()
 
@@ -327,6 +331,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_cond
         writer.add_scalar('LossD_real/test', D_real_loss_test, epoch)
         writer.add_scalar('MSE/train', train_mse_loss, epoch)
         writer.add_scalar('MSE/test', test_mse_loss, epoch)
+        writer.add_scalar('Masked_MSE/train', masked_train_mse_loss, epoch)
+        writer.add_scalar('Masked_MSE/test', masked_test_mse_loss, epoch)
         writer.add_scalar('G_D_loss/train', G_Dcomp_loss_train, epoch)
         writer.add_scalar('G_D_loss/test', G_Dcomp_loss_test, epoch)
         writer.add_scalar('G_UNET_loss/train', UNET_loss_train, epoch)
