@@ -163,7 +163,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_cond
     elif loss_type == "gdl":
         unet_loss = GDL()
     elif loss_type == "l2":
-        unet_loss = nn.MSELoss().cuda(reduction="sum")
+        unet_loss = nn.MSELoss(reduction="sum").cuda()
 
     # train_dataset = Volumes(train_dir)
     train_dataset = VolumesFromList(data_dir, patientList_dir, valFold=3, testingHoldoutFold=4, test=False)
