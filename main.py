@@ -125,7 +125,7 @@ def saveImgNby3(arrs, ct, save_path, labels=None):
     plt.close(fig)
 
 
-def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_condition_volume, params):
+def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     num_epochs = params["num_epochs"]
     alpha = params["alpha"]
     beta = params["beta"]
@@ -134,16 +134,17 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_cond
     d_update_ratio = params["d_update_ratio"]
     batch_size = params["batch_size"]
     generator_attention = params["generator_attention"]
+    alt_condition_volume = params["alt_condition_volume"]
     g_lr = 2e-4
     d_lr = 2e-4
 
     if generator_attention:
-        if alt_condition_volume == "est_dose":
+        if alt_condition_volume == "ED":
             g = AttentionGenerator(2, 1)
         else:
             g = AttentionGenerator(3, 1)
     else:
-        if alt_condition_volume == "est_dose":
+        if alt_condition_volume == "ED":
             g = Generator(2, 1)
         else:
             g = Generator(3, 1)
@@ -196,12 +197,12 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_cond
         g.train()
         for idx, volumes in enumerate(train_loader):
             real_dose = volumes[:, 0, :, :, :].unsqueeze(1).float()
-
-            if alt_condition_volume == "est_dose":
+            #order of stack is: [real dose; estimated dose; oars; CT; Prescription]
+            if alt_condition_volume == "ED": #ED only
                 alt_condition = volumes[:, 1, :, :, :].unsqueeze(1).float()
-            # elif alt_condition_volume == "ct":
-            #     alt_condition = torch.cat((volumes[:, 4, :, :, :].unsqueeze(1).float(), volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
-            elif alt_condition_volume == "both":
+            elif alt_condition_volume == "CT": #prescription and ct
+                alt_condition = torch.cat((volumes[:, 4, :, :, :].unsqueeze(1).float(), volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
+            elif alt_condition_volume == "EDCT":  #ED and CT
                 alt_condition = torch.cat(
                     (volumes[:, 1, :, :, :].unsqueeze(1).float(), volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
             else:
@@ -261,11 +262,11 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_cond
             for test_idx, test_volumes in enumerate(test_loader):
                 with torch.no_grad():
                     real_dose_test = test_volumes[:, 0, :, :, :].unsqueeze(1).float()
-                    if alt_condition_volume == "est_dose":
+                    if alt_condition_volume == "ED": #ED only
                         alt_condition_test = test_volumes[:, 1, :, :, :].unsqueeze(1).float()
-                    # elif alt_condition_volume == "ct":
-                    #     alt_condition_test = torch.cat((test_volumes[:, 4, :, :, :].unsqueeze(1).float(), test_volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
-                    elif alt_condition_volume == "both":
+                    elif alt_condition_volume == "CT": #Prescription and CT
+                        alt_condition_test = torch.cat((test_volumes[:, 4, :, :, :].unsqueeze(1).float(), test_volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
+                    elif alt_condition_volume == "EDCT": #ED and CT
                         alt_condition_test = torch.cat((test_volumes[:, 1, :, :, :].unsqueeze(1).float(),
                                                         test_volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
                     else:
@@ -342,7 +343,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_cond
 
     writer.add_hparams(
         {"epochs": num_epochs, "alpha": alpha, "beta": beta, "loss_type": loss_type, "d_update_ratio": d_update_ratio,
-         "attention": generator_attention, "batch_size": batch_size, "g_lr": g_lr, "d_lr": g_lr},
+         "attention": generator_attention, "batch_size": batch_size, "g_lr": g_lr, "d_lr": g_lr, "condition": alt_condition_volume},
         {"hparam/last_mse_loss_test": test_mse_loss, "hparam/last_g_loss_test": G_loss_test,
          "hparam/last_d_loss_test": D_loss_test},
         run_name=log_path)  # <- see here
@@ -379,11 +380,12 @@ if __name__ == '__main__':
                         "d_update_ratio": d_update_ratio,
                         "batch_size": batch_size,
                         "generator_attention": generator_attention,
+                        "alt_condition_volume": alt_condition_volume,
                     }
 
                     exp_name = f'{exp_name_base}_LossType={loss_type}_Alpha={alpha}_Beta={beta}_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}_Attention={generator_attention}_'
                     print(params, exp_name)
-                    train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, alt_condition_volume, params)
+                    train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
 
                     runNum += 1
 
