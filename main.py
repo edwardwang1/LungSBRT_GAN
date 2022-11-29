@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import tqdm
+import argparse, sys
 
 import torch
 from torch import nn
@@ -352,20 +353,44 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 if __name__ == '__main__':
     print(torch.cuda.is_available())
     config = load_config("conf.yml")
-    num_epochs = config.NUM_EPOCHS
-    batch_size = config.BATCH_SIZE
-    generator_attention = config.GENERATOR_ATTENTION
     data_dir = config.DATA_DIR
     patientList_dir = config.PATIENT_LIST_DIR
-
     save_dir = config.SAVE_DIR
-    exp_name_base = config.EXP_NAME
-    alt_condition_volume = config.ALT_CONDITION_VOLUME
 
-    alphas = config.ALPHA
-    betas = config.BETA
-    loss_types = config.LOSS_TYPE
-    d_update_ratios = config.D_UPDATE_RATIO
+    if len(sys.argv) > 1:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--num_epochs", type=int)
+        parser.add_argument("--batch_size", type=int)
+        parser.add_argument("--attention", type=bool)
+        parser.add_argument("--exp_name", type=str)
+        parser.add_argument("--condition", type=str)
+        parser.add_argument("--alpha", type=float)
+        parser.add_argument("--beta", type=float)
+        parser.add_argument("--loss_type", type=str)
+        parser.add_argument("--dur", type=int)
+
+        args = parser.parse_args()
+
+        num_epochs = args.num_epochs
+        batch_size = args.batch_size
+        generator_attention = args.attention
+        exp_name_base = args.exp_name
+        alt_condition_volume = args.condition
+        alphas = [args.alpha]
+        betas = [args.beta]
+        loss_types = [args.loss_type]
+        d_update_ratios = [args.dur]
+
+    else:
+        num_epochs = config.NUM_EPOCHS
+        batch_size = config.BATCH_SIZE
+        generator_attention = config.GENERATOR_ATTENTION
+        exp_name_base = config.EXP_NAME
+        alt_condition_volume = config.ALT_CONDITION_VOLUME
+        alphas = config.ALPHA
+        betas = config.BETA
+        loss_types = config.LOSS_TYPE
+        d_update_ratios = config.D_UPDATE_RATIO
 
     runNum = 0
     for alpha in alphas:
