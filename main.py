@@ -408,7 +408,7 @@ if __name__ == '__main__':
                         "alt_condition_volume": alt_condition_volume,
                     }
 
-                    exp_name = f'{exp_name_base}_LossType={loss_type}_Alpha={alpha}_Beta={beta}_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}_Attention={generator_attention}_'
+                    exp_name = f'{exp_name_base}_LossType={loss_type}_Alpha={alpha}_Beta={beta}_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}_Attention={generator_attention}_Cond={alt_condition_volume}_'
                     print(params, exp_name)
                     train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
 
