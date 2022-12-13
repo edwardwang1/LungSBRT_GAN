@@ -361,7 +361,7 @@ if __name__ == '__main__':
         parser = argparse.ArgumentParser()
         parser.add_argument("--num_epochs", type=int)
         parser.add_argument("--batch_size", type=int)
-        parser.add_argument("--attention", type=bool)
+        parser.add_argument('--attention', action=argparse.BooleanOptionalAction)
         parser.add_argument("--exp_name", type=str)
         parser.add_argument("--condition", type=str)
         parser.add_argument("--alpha", type=float)
