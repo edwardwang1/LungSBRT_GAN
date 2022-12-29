@@ -51,3 +51,5 @@ class VolumesFromList(Dataset):
 
         return volumes
 
+    def getValIDs(self):
+        return self.valIDs

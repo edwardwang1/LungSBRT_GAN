@@ -282,15 +282,16 @@ class Discriminator(nn.Module):
         return x
 
 if __name__ == '__main__':
-    #model = Generator(3, 1, True)
-    model = Discriminator(True)
-    x = torch.randn((4, 1, 96, 160, 160))
-    y = torch.randn((4, 1, 96, 160, 160))
-
-    device = torch.device('cuda:0')
-    x = x.to(device)
-    y = y.to(device)
-    model.to(device)
-
-    out = model(x, y)
+    model = Generator(3, 1, True)
+    print(model.first_layer)
+    # model = Discriminator(True)
+    # x = torch.randn((4, 1, 96, 160, 160))
+    # y = torch.randn((4, 1, 96, 160, 160))
+    #
+    # device = torch.device('cuda:0')
+    # x = x.to(device)
+    # y = y.to(device)
+    # model.to(device)
+    #
+    # out = model(x, y)
 
