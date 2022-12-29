@@ -136,8 +136,10 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     batch_size = params["batch_size"]
     generator_attention = params["generator_attention"]
     alt_condition_volume = params["alt_condition_volume"]
-    g_lr = 2e-4
-    d_lr = 2e-4
+    g_lr = params["g_lr"]
+    d_lr = params["d_lr"]
+    #g_lr = 2e-4
+    #d_lr = 2e-4
 
     if generator_attention:
         if alt_condition_volume == "ED":
@@ -368,6 +370,8 @@ if __name__ == '__main__':
         parser.add_argument("--beta", type=float)
         parser.add_argument("--loss_type", type=str)
         parser.add_argument("--dur", type=int)
+        parser.add_argument("--g_lr", type=float)
+        parser.add_argument("--d_lr", type=float)
 
         args = parser.parse_args()
 
@@ -380,6 +384,8 @@ if __name__ == '__main__':
         betas = [args.beta]
         loss_types = [args.loss_type]
         d_update_ratios = [args.dur]
+        g_lrs = [args.g_lr]
+        d_lrs = [args.d_lr]
 
     else:
         num_epochs = config.NUM_EPOCHS
@@ -391,27 +397,33 @@ if __name__ == '__main__':
         betas = config.BETA
         loss_types = config.LOSS_TYPE
         d_update_ratios = config.D_UPDATE_RATIO
+        g_lrs = config.G_LR
+        d_lrs = config.D_LR
 
     runNum = 0
     for alpha in alphas:
         for beta in betas:
             for loss_type in loss_types:
                 for d_update_ratio in d_update_ratios:
-                    params = {
-                        "num_epochs": num_epochs,
-                        "alpha": alpha,
-                        "beta": beta,
-                        "loss_type": loss_type,
-                        "d_update_ratio": d_update_ratio,
-                        "batch_size": batch_size,
-                        "generator_attention": generator_attention,
-                        "alt_condition_volume": alt_condition_volume,
-                    }
+                    for g_lr in g_lrs:
+                        for d_lr in d_lrs:
+                            params = {
+                                "num_epochs": num_epochs,
+                                "alpha": alpha,
+                                "beta": beta,
+                                "loss_type": loss_type,
+                                "d_update_ratio": d_update_ratio,
+                                "batch_size": batch_size,
+                                "generator_attention": generator_attention,
+                                "alt_condition_volume": alt_condition_volume,
+                                "g_lr": float(g_lr),
+                                "d_lr": float(d_lr)
+                            }
 
-                    exp_name = f'{exp_name_base}_LossType={loss_type}_Alpha={alpha}_Beta={beta}_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}_Attention={generator_attention}_Cond={alt_condition_volume}_'
-                    print(params, exp_name)
-                    train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
+                            exp_name = f'dLR={d_lr}_LossType={loss_type}_Alpha={alpha}_Beta={beta}_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}_Attention={generator_attention}_Cond={alt_condition_volume}_'
+                            print(params, exp_name)
+                            train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
 
-                    runNum += 1
+                            runNum += 1
 
 # C:\Users\wanged\Anaconda3\envs\LungGan\Scripts\tensorboard.exe --logdir=
