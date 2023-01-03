@@ -318,11 +318,14 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         # Saves images for all items in last batch
         if epoch % interval == 0:
             for j in range(y_fake_test.shape[0]):
-                saveImgNby3(
-                    [y_fake_test[j, 0, :, :, :], real_dose_test[j, 0, :, :, :], alt_condition_test[j, 0, :, :, :]],
-                    ct_test[j, 0, :, :, :],
-                    os.path.join(images_save_path, str(j) + "_epoch" + str(epoch) + ".png"),
-                    labels=["Fake", "Real", "Condition"])
+                try:
+                    saveImgNby3(
+                        [y_fake_test[j, 0, :, :, :], real_dose_test[j, 0, :, :, :], alt_condition_test[j, 0, :, :, :]],
+                        ct_test[j, 0, :, :, :],
+                        os.path.join(images_save_path, str(j) + "_epoch" + str(epoch) + ".png"),
+                        labels=["Fake", "Real", "Condition"])
+                except:
+                    print("Error saving image")
 
         # Logging
         writer.add_scalar('LossG/train', G_loss, epoch)
