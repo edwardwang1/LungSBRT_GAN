@@ -259,7 +259,7 @@ class Discriminator(nn.Module):
 
         self.last_layer = nn.Sequential(
             nn.Conv3d(num_features[-1], 1, 4, 1, 1),
-            nn.Sigmoid()
+            #nn.Sigmoid()
         )
 
     def forward(self, x, oars):
