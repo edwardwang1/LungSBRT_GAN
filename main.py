@@ -138,6 +138,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     alt_condition_volume = params["alt_condition_volume"]
     g_lr = params["g_lr"]
     d_lr = params["d_lr"]
+    recalc_fake = params["recalc_fake"]
     #g_lr = 2e-4
     #d_lr = 2e-4
 
@@ -219,10 +220,15 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 
             # Train Discriminator
             with torch.cuda.amp.autocast():
-                y_fake = g(alt_condition, oars)
                 D_real = d(real_dose, oars)
                 D_real_loss = L2_LOSS(D_real, torch.ones_like(D_real))
-                D_fake = d(y_fake, oars)
+                if recalc_fake:
+                    with torch.no_grad():
+                        y_fake = g(alt_condition, oars)
+                        D_fake = d(y_fake.detach(), oars)
+                else:
+                    y_fake = g(alt_condition, oars)
+                    D_fake = d(y_fake, oars)
                 D_fake_loss = L2_LOSS(D_fake, torch.zeros_like(D_fake))
                 D_loss = (D_real_loss + D_fake_loss) / 2
 
@@ -233,6 +239,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                 d_scaler.update()
 
             with torch.cuda.amp.autocast():
+                if recalc_fake:
+                    y_fake = g(alt_condition, oars)
                 D_fake = d(y_fake, oars)
                 G_Dcomp_loss_train = L2_LOSS(D_fake, torch.ones_like(D_fake))
                 UNET_loss_train = unet_loss(y_fake, real_dose) / torch.numel(y_fake)
@@ -375,6 +383,7 @@ if __name__ == '__main__':
         parser.add_argument("--dur", type=int)
         parser.add_argument("--g_lr", type=float)
         parser.add_argument("--d_lr", type=float)
+        parser.add_argument("--recalc_fake", action=argparse.BooleanOptionalAction)
 
         args = parser.parse_args()
 
@@ -389,6 +398,7 @@ if __name__ == '__main__':
         d_update_ratios = [args.dur]
         g_lrs = [args.g_lr]
         d_lrs = [args.d_lr]
+        recalc_fake = args.recalc_fake
 
     else:
         num_epochs = config.NUM_EPOCHS
@@ -402,6 +412,7 @@ if __name__ == '__main__':
         d_update_ratios = config.D_UPDATE_RATIO
         g_lrs = config.G_LR
         d_lrs = config.D_LR
+        recalc_fake = config.RECALC_FAKE
 
     runNum = 0
     for alpha in alphas:
@@ -420,10 +431,12 @@ if __name__ == '__main__':
                                 "generator_attention": generator_attention,
                                 "alt_condition_volume": alt_condition_volume,
                                 "g_lr": float(g_lr),
-                                "d_lr": float(d_lr)
+                                "d_lr": float(d_lr),
+                                "recalc_fake": recalc_fake,
+
                             }
 
-                            exp_name = f'dLR={d_lr}_LossType={loss_type}_Alpha={alpha}_Beta={beta}_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}_Attention={generator_attention}_Cond={alt_condition_volume}_'
+                            exp_name = f'dLR={d_lr}_LossType={loss_type}_Alpha={alpha}_Beta={beta}_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}_Attention={generator_attention}_Cond={alt_condition_volume}_recalcFake={recalc_fake}'
                             print(params, exp_name)
                             train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
 
