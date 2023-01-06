@@ -125,6 +125,27 @@ def saveImgNby3(arrs, ct, save_path, labels=None):
     plt.savefig(save_path, format="png", dpi=1000, bbox_inches='tight')
     plt.close(fig)
 
+def getDLoss(g, d, real_dose, oars, alt_condition, adv_loss):
+    D_real = d(real_dose, oars)
+    #print("D_real: ", torch.mean(D_real))
+    D_real_loss = adv_loss(D_real, torch.ones_like(D_real))
+    with torch.no_grad():
+        y_fake = g(alt_condition, oars)
+        D_fake = d(y_fake.detach(), oars)
+
+    #print("D_fake: ", torch.mean(D_fake))
+    D_fake_loss = adv_loss(D_fake, torch.zeros_like(D_fake))
+    D_loss = (D_real_loss + D_fake_loss) / 2
+    return D_loss, D_real_loss, D_fake_loss
+
+def getGLoss(g, d, real_dose, oars, alt_condition, adv_loss, unet_loss):
+    y_fake = g(alt_condition, oars)
+    D_fake = d(y_fake, oars)
+    G_Dcomp_loss_train = adv_loss(D_fake, torch.ones_like(D_fake))
+    UNET_loss_train = unet_loss(y_fake, real_dose) / torch.numel(y_fake)
+    masked_UNET_loss_train = unet_loss(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
+    G_loss = G_Dcomp_loss_train + alpha * ((1 - beta) * UNET_loss_train + beta * masked_UNET_loss_train)
+    return G_loss, G_Dcomp_loss_train, UNET_loss_train, masked_UNET_loss_train, y_fake.detach()
 
 def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     num_epochs = params["num_epochs"]
@@ -138,7 +159,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     alt_condition_volume = params["alt_condition_volume"]
     g_lr = params["g_lr"]
     d_lr = params["d_lr"]
-    recalc_fake = params["recalc_fake"]
+    adv_loss_type = params["adv_loss_type"]
+
     #g_lr = 2e-4
     #d_lr = 2e-4
 
@@ -159,8 +181,11 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 
     opt_g = optim.Adam(g.parameters(), lr=g_lr, betas=(0.5, 0.999), )
     opt_d = optim.Adam(d.parameters(), lr=d_lr, betas=(0.5, 0.999), )
-    # BCE = nn.BCEWithLogitsLoss()
-    L2_LOSS = nn.MSELoss(reduction="mean").cuda()
+    if adv_loss_type == "ls":
+        adv_loss = nn.MSELoss(reduction="mean").cuda()
+    elif adv_loss_type == "bce":
+        adv_loss = nn.BCEWithLogitsLoss().cuda()
+    #
     L2_LOSS_sum = nn.MSELoss(reduction="sum").cuda()
 
     if loss_type == "l1":
@@ -199,6 +224,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     # for epoch in range(num_epochs):
     for epoch in epoch_loop:
         g.train()
+        d.train()
         for idx, volumes in enumerate(train_loader):
             real_dose = volumes[:, 0, :, :, :].unsqueeze(1).float()
             #order of stack is: [real dose; estimated dose; oars; CT; Prescription]
@@ -220,17 +246,20 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 
             # Train Discriminator
             with torch.cuda.amp.autocast():
-                D_real = d(real_dose, oars)
-                D_real_loss = L2_LOSS(D_real, torch.ones_like(D_real))
-                if recalc_fake:
-                    with torch.no_grad():
-                        y_fake = g(alt_condition, oars)
-                        D_fake = d(y_fake.detach(), oars)
-                else:
-                    y_fake = g(alt_condition, oars)
-                    D_fake = d(y_fake, oars)
-                D_fake_loss = L2_LOSS(D_fake, torch.zeros_like(D_fake))
-                D_loss = (D_real_loss + D_fake_loss) / 2
+                D_loss, D_real_loss, D_fake_loss = getDLoss(g, d, real_dose, oars, alt_condition, adv_loss)
+                # D_real = d(real_dose, oars)
+                # print("D_real: ", torch.mean(D_real))
+                # D_real_loss = adv_loss(D_real, torch.ones_like(D_real))
+                # if recalc_fake:
+                #     with torch.no_grad():
+                #         y_fake = g(alt_condition, oars)
+                #         D_fake = d(y_fake.detach(), oars)
+                # else:
+                #     y_fake = g(alt_condition, oars)
+                #     D_fake = d(y_fake, oars)
+                # print("D_fake: ", torch.mean(D_fake))
+                # D_fake_loss = adv_loss(D_fake, torch.zeros_like(D_fake))
+                # D_loss = (D_real_loss + D_fake_loss) / 2
 
             if epoch % d_update_ratio == 0:
                 d.zero_grad()
@@ -238,14 +267,19 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                 d_scaler.step(opt_d)
                 d_scaler.update()
 
+            # Train Generator
             with torch.cuda.amp.autocast():
-                if recalc_fake:
-                    y_fake = g(alt_condition, oars)
-                D_fake = d(y_fake, oars)
-                G_Dcomp_loss_train = L2_LOSS(D_fake, torch.ones_like(D_fake))
-                UNET_loss_train = unet_loss(y_fake, real_dose) / torch.numel(y_fake)
-                masked_UNET_loss_train = unet_loss(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
-                G_loss =  G_Dcomp_loss_train + alpha * ((1 - beta) * UNET_loss_train + beta * masked_UNET_loss_train)
+                #Note the y_fake that is returned has been detached
+                G_loss, G_Dcomp_loss_train, UNET_loss_train, masked_UNET_loss_train, y_fake = getGLoss(g, d, real_dose, oars,
+                                                                                               alt_condition, adv_loss,
+                                                                                               unet_loss)
+                # if recalc_fake:
+                #     y_fake = g(alt_condition, oars)
+                # D_fake = d(y_fake, oars)
+                # G_Dcomp_loss_train = adv_loss(D_fake, torch.ones_like(D_fake))
+                # UNET_loss_train = unet_loss(y_fake, real_dose) / torch.numel(y_fake)
+                # masked_UNET_loss_train = unet_loss(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
+                # G_loss = G_Dcomp_loss_train + alpha * ((1 - beta) * UNET_loss_train + beta * masked_UNET_loss_train)
 
             opt_g.zero_grad()
             g_scaler.scale(G_loss).backward()
@@ -269,6 +303,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         # Testing
         if epoch % interval == 0:
             g.eval()
+            d.eval()
             G_loss_test = 0
             for test_idx, test_volumes in enumerate(test_loader):
                 with torch.no_grad():
@@ -288,27 +323,37 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                     real_dose_test = real_dose_test.cuda()
                     oars_test = oars_test.cuda()
 
-                    y_fake_test = g(alt_condition_test, oars_test).detach()
+                    D_loss_test, D_real_loss_test, D_fake_loss_test = getDLoss(g, d, real_dose_test, oars_test, alt_condition_test, adv_loss)
 
-                    D_real_test = d(real_dose_test, oars_test)
-                    D_fake_test = d(y_fake_test, oars_test)
+                    # y_fake_test = g(alt_condition_test, oars_test).detach()
+                    #
+                    # D_real_test = d(real_dose_test, oars_test)
+                    # D_fake_test = d(y_fake_test, oars_test)
+                    #
+                    # D_real_loss_test = adv_loss(D_real_test, torch.ones_like(D_real_test))
+                    # D_fake_loss_test = adv_loss(D_fake_test, torch.zeros_like(D_fake_test))
+                    # D_loss_test = (D_real_loss_test + D_fake_loss_test) / 2
 
-                    D_real_loss_test = L2_LOSS(D_real_test, torch.ones_like(D_real_test))
-                    D_fake_loss_test = L2_LOSS(D_fake_test, torch.zeros_like(D_fake_test))
-                    D_loss_test = (D_real_loss_test + D_fake_loss_test) / 2
+                    #Returned y_fake_test has been detached
+                    G_loss_test, G_Dcomp_loss_test, UNET_loss_test, masked_UNET_loss_test, y_fake_test = getGLoss(g, d,
+                                                                                                           real_dose_test,
+                                                                                                           oars_test,
+                                                                                                           alt_condition_test,
+                                                                                                           adv_loss,
+                                                                                                           unet_loss)
 
-                    G_Dcomp_loss_test = L2_LOSS(D_fake_test, torch.ones_like(D_fake_test))
-                    UNET_loss_test = unet_loss(y_fake_test, real_dose_test) / torch.numel(y_fake_test)
-                    masked_UNET_loss_test = unet_loss(y_fake_test * (oars_test > 0), real_dose_test * (oars_test > 0)) / torch.sum(oars_test > 0)
-                    G_loss_test += G_Dcomp_loss_test + alpha * ((1 - beta) * UNET_loss_test + beta * masked_UNET_loss_test)
+                    # G_Dcomp_loss_test = adv_loss(D_fake_test, torch.ones_like(D_fake_test))
+                    # UNET_loss_test = unet_loss(y_fake_test, real_dose_test) / torch.numel(y_fake_test)
+                    # masked_UNET_loss_test = unet_loss(y_fake_test * (oars_test > 0), real_dose_test * (oars_test > 0)) / torch.sum(oars_test > 0)
+                    # G_loss_test += G_Dcomp_loss_test + alpha * ((1 - beta) * UNET_loss_test + beta * masked_UNET_loss_test)
 
             G_loss_test /= (test_idx + 1)
 
             test_mse_loss = L2_LOSS_sum(y_fake_test, real_dose_test) / torch.numel(y_fake_test)
             masked_test_mse_loss = L2_LOSS_sum(y_fake_test * (oars_test > 0), real_dose_test * (oars_test > 0)) / torch.sum(oars_test > 0)
 
-            y_fake_test = y_fake_test.detach().cpu().numpy()
-            real_dose_test = real_dose_test.detach().cpu().numpy()
+            y_fake_test = y_fake_test.cpu().numpy()
+            real_dose_test = real_dose_test.cpu().numpy()
 
             alt_condition_test = alt_condition_test.detach().cpu().numpy()
 
@@ -383,7 +428,8 @@ if __name__ == '__main__':
         parser.add_argument("--dur", type=int)
         parser.add_argument("--g_lr", type=float)
         parser.add_argument("--d_lr", type=float)
-        parser.add_argument("--recalc_fake", action=argparse.BooleanOptionalAction)
+        parser.add_argument("--adv_loss_type", type=str)
+        #parser.add_argument("--recalc_fake", action=argparse.BooleanOptionalAction)
 
         args = parser.parse_args()
 
@@ -398,7 +444,8 @@ if __name__ == '__main__':
         d_update_ratios = [args.dur]
         g_lrs = [args.g_lr]
         d_lrs = [args.d_lr]
-        recalc_fake = args.recalc_fake
+        #recalc_fake = args.recalc_fake
+        adv_loss_types = [args.adv_loss_type]
 
     else:
         num_epochs = config.NUM_EPOCHS
@@ -412,7 +459,8 @@ if __name__ == '__main__':
         d_update_ratios = config.D_UPDATE_RATIO
         g_lrs = config.G_LR
         d_lrs = config.D_LR
-        recalc_fake = config.RECALC_FAKE
+        #recalc_fake = config.RECALC_FAKE
+        adv_loss_types = config.ADV_LOSS_TYPE
 
     runNum = 0
     for alpha in alphas:
@@ -421,25 +469,30 @@ if __name__ == '__main__':
                 for d_update_ratio in d_update_ratios:
                     for g_lr in g_lrs:
                         for d_lr in d_lrs:
-                            params = {
-                                "num_epochs": num_epochs,
-                                "alpha": alpha,
-                                "beta": beta,
-                                "loss_type": loss_type,
-                                "d_update_ratio": d_update_ratio,
-                                "batch_size": batch_size,
-                                "generator_attention": generator_attention,
-                                "alt_condition_volume": alt_condition_volume,
-                                "g_lr": float(g_lr),
-                                "d_lr": float(d_lr),
-                                "recalc_fake": recalc_fake,
+                            for adv_loss_type in adv_loss_types:
+                                params = {
+                                    "num_epochs": num_epochs,
+                                    "alpha": alpha,
+                                    "beta": beta,
+                                    "loss_type": loss_type,
+                                    "d_update_ratio": d_update_ratio,
+                                    "batch_size": batch_size,
+                                    "generator_attention": generator_attention,
+                                    "alt_condition_volume": alt_condition_volume,
+                                    "g_lr": float(g_lr),
+                                    "d_lr": float(d_lr),
+                                    #"recalc_fake": recalc_fake,
+                                    "adv_loss_type": adv_loss_type,
 
                             }
 
-                            exp_name = f'dLR={d_lr}_LossType={loss_type}_Alpha={alpha}_Beta={beta}_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}_Attention={generator_attention}_Cond={alt_condition_volume}_recalcFake={recalc_fake}'
+                            exp_name = f'dLR={d_lr}_LossType={loss_type}_Alpha={alpha}_Beta={beta}' \
+                                       f'_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}' \
+                                       f'_Attention={generator_attention}_Cond={alt_condition_volume}' \
+                                       f'_AdvLossType={adv_loss_type}'
                             print(params, exp_name)
                             train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
 
                             runNum += 1
 
-# C:\Users\wanged\Anaconda3\envs\LungGan\Scripts\tensorboard.exe --logdir=
+# C:\Users\wanged\Anaconda3\envs\LungGan\Scripts\tensorboard.exe --port 6007 --logdir=
