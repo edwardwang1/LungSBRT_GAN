@@ -18,6 +18,19 @@ from config import load_config
 import matplotlib
 import matplotlib.pyplot as plt
 
+def getV_XfromTensor(doseVolume, oarVolume, oarCode, doseTarget):
+    # doseVolume is a [N, 1, 96, 144, 144] tensor
+    # convert doseVolume to a numpy array, remove the channel dimension
+    doseVolume = doseVolume.squeeze(1).cpu().numpy()
+    # convert oarVolume to a numpy array, remove the channel dimension
+    oarVolume = oarVolume.squeeze(1).cpu().numpy()
+    oar = oarVolume == oarCode
+    greaterThanDose = doseVolume > doseTarget
+    V_Xs = []
+    for i in range(doseVolume.shape[0]):
+        V_Xs.append((greaterThanDose[i] * oar[i]).sum()/oar[i].sum() * 100)
+    print(V_Xs)
+    return np.array(V_Xs)
 
 def saveImg4by3(v1, v2, v3, v4, save_path):
     f, axarr = plt.subplots(4, 3)
@@ -38,7 +51,6 @@ def saveImg4by3(v1, v2, v3, v4, save_path):
     axarr[3, 2].imshow(v4[:, :, 72])
     plt.savefig(save_path)
     plt.close(f)
-
 
 def saveImgNby3(arrs, ct, save_path, labels=None):
     aspect = 1.
@@ -163,6 +175,11 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 
     #g_lr = 2e-4
     #d_lr = 2e-4
+
+    oarCodes = {"lung": 1,
+                # "heart":2,
+                # "eso":3,
+                }
 
     if generator_attention:
         if alt_condition_volume == "ED":
@@ -297,8 +314,13 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
             torch.save(d.state_dict(),
                        os.path.join(weights_path, "DiscriminatorWeightsEpoch" + str(epoch) + ".pth"))
 
+        # calculate extra losses and metrics
         train_mse_loss = L2_LOSS_sum(y_fake, real_dose) / torch.numel(y_fake)
         masked_train_mse_loss = L2_LOSS_sum(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
+        fake_V20_train = getV_XfromTensor(y_fake, oars, oarCodes["lung"], 20)
+        true_V20_train = getV_XfromTensor(real_dose, oars, oarCodes["lung"], 20)
+        diff_train_V20 = np.mean(np.abs(true_V20_train - fake_V20_train))
+        print("train V20: ", diff_train_V20)
 
         # Testing
         if epoch % interval == 0:
@@ -349,16 +371,13 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 
             G_loss_test /= (test_idx + 1)
 
+
+            # calculate extra losses and metrics
             test_mse_loss = L2_LOSS_sum(y_fake_test, real_dose_test) / torch.numel(y_fake_test)
             masked_test_mse_loss = L2_LOSS_sum(y_fake_test * (oars_test > 0), real_dose_test * (oars_test > 0)) / torch.sum(oars_test > 0)
-
-            y_fake_test = y_fake_test.cpu().numpy()
-            real_dose_test = real_dose_test.cpu().numpy()
-
-            alt_condition_test = alt_condition_test.detach().cpu().numpy()
-
-            oars_test = oars_test.detach().cpu().numpy()
-            ct_test = test_volumes[:, 3, :, :, :].unsqueeze(1).float().detach().numpy()
+            fake_V20_test = getV_XfromTensor(y_fake_test, oars_test, oarCodes["lung"], 20)
+            true_V20_test = getV_XfromTensor(real_dose_test, oars_test, oarCodes["lung"], 20)
+            diff_test_V20 = np.mean(np.abs(true_V20_test - fake_V20_test))
 
         # if not os.path.exists(os.path.join(save_dir, "Images")):
         #     os.mkdir(os.path.join(save_dir, "Images"))
@@ -370,6 +389,11 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 
         # Saves images for all items in last batch
         if epoch % interval == 0:
+            y_fake_test = y_fake_test.cpu().numpy()
+            real_dose_test = real_dose_test.cpu().numpy()
+            alt_condition_test = alt_condition_test.detach().cpu().numpy()
+            oars_test = oars_test.detach().cpu().numpy()
+            ct_test = test_volumes[:, 3, :, :, :].unsqueeze(1).float().detach().numpy()
             for j in range(y_fake_test.shape[0]):
                 try:
                     saveImgNby3(
@@ -399,6 +423,9 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         writer.add_scalar('G_UNET_loss/test', UNET_loss_test, epoch)
         writer.add_scalar('Masked_G_UNET_loss/train', masked_UNET_loss_train, epoch)
         writer.add_scalar('Masked_G_UNET_loss/test', masked_UNET_loss_test, epoch)
+        writer.add_scalar('Diff_V20/train', diff_train_V20, epoch)
+        writer.add_scalar('Diff_V20/test', diff_test_V20, epoch)
+
 
     writer.add_hparams(
         {"epochs": num_epochs, "alpha": alpha, "beta": beta, "loss_type": loss_type, "d_update_ratio": d_update_ratio,
@@ -483,16 +510,15 @@ if __name__ == '__main__':
                                     "d_lr": float(d_lr),
                                     #"recalc_fake": recalc_fake,
                                     "adv_loss_type": adv_loss_type,
+                                }
 
-                            }
-
-                            exp_name = f'dLR={d_lr}_LossType={loss_type}_Alpha={alpha}_Beta={beta}' \
-                                       f'_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}' \
-                                       f'_Attention={generator_attention}_Cond={alt_condition_volume}' \
-                                       f'_AdvLossType={adv_loss_type}'
-                            print(params, exp_name)
-                            train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
+                                exp_name = f'dLR={d_lr}_LossType={loss_type}_Alpha={alpha}_Beta={beta}' \
+                                           f'_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}' \
+                                           f'_Attention={generator_attention}_Cond={alt_condition_volume}' \
+                                           f'_AdvLossType={adv_loss_type}'
+                                print(params, exp_name)
+                                train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
 
                             runNum += 1
 
-# C:\Users\wanged\Anaconda3\envs\LungGan\Scripts\tensorboard.exe --port 6007 --logdir=
+# C:\Users\wanged\Anaconda3\envs\LungGan\Scripts\t
