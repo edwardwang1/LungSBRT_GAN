@@ -157,7 +157,7 @@ def getGLoss(g, d, real_dose, oars, alt_condition, adv_loss, unet_loss):
     UNET_loss_train = unet_loss(y_fake, real_dose) / torch.numel(y_fake)
     masked_UNET_loss_train = unet_loss(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
     G_loss = G_Dcomp_loss_train + alpha * ((1 - beta) * UNET_loss_train + beta * masked_UNET_loss_train)
-    return G_loss, G_Dcomp_loss_train, UNET_loss_train, masked_UNET_loss_train, y_fake.detach()
+    return G_loss, G_Dcomp_loss_train, UNET_loss_train, masked_UNET_loss_train, y_fake
 
 def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     num_epochs = params["num_epochs"]
@@ -286,7 +286,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 
             # Train Generator
             with torch.cuda.amp.autocast():
-                #Note the y_fake that is returned has been detached
+                #Note the y_fake that is returned has NOT been detached
                 G_loss, G_Dcomp_loss_train, UNET_loss_train, masked_UNET_loss_train, y_fake = getGLoss(g, d, real_dose, oars,
                                                                                                alt_condition, adv_loss,
                                                                                                unet_loss)
@@ -315,6 +315,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                        os.path.join(weights_path, "DiscriminatorWeightsEpoch" + str(epoch) + ".pth"))
 
         # calculate extra losses and metrics
+        y_fake = y_fake.detach()
         train_mse_loss = L2_LOSS_sum(y_fake, real_dose) / torch.numel(y_fake)
         masked_train_mse_loss = L2_LOSS_sum(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
         fake_V20_train = getV_XfromTensor(y_fake, oars, oarCodes["lung"], 20)
@@ -356,7 +357,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                     # D_fake_loss_test = adv_loss(D_fake_test, torch.zeros_like(D_fake_test))
                     # D_loss_test = (D_real_loss_test + D_fake_loss_test) / 2
 
-                    #Returned y_fake_test has been detached
+                    #Returned y_fake_test NOT been detached
                     G_loss_test, G_Dcomp_loss_test, UNET_loss_test, masked_UNET_loss_test, y_fake_test = getGLoss(g, d,
                                                                                                            real_dose_test,
                                                                                                            oars_test,
@@ -373,6 +374,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 
 
             # calculate extra losses and metrics
+            y_fake_test = g(alt_condition_test, oars_test).detach()
             test_mse_loss = L2_LOSS_sum(y_fake_test, real_dose_test) / torch.numel(y_fake_test)
             masked_test_mse_loss = L2_LOSS_sum(y_fake_test * (oars_test > 0), real_dose_test * (oars_test > 0)) / torch.sum(oars_test > 0)
             fake_V20_test = getV_XfromTensor(y_fake_test, oars_test, oarCodes["lung"], 20)
