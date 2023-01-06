@@ -136,22 +136,22 @@ def saveImgNby3(arrs, ct, save_path, labels=None):
     plt.savefig(save_path, format="png", dpi=1000, bbox_inches='tight')
     plt.close(fig)
 
-def getDLoss(g, d, real_dose, oars, alt_condition, adv_criterion):
-    D_real = d(real_dose, oars)
+def getDLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_criterion):
+    D_real = d(real_dose, disc_alt_condition, oars)
     #print("D_real: ", torch.mean(D_real))
     D_real_loss = adv_criterion(D_real, torch.ones_like(D_real))
     with torch.no_grad():
         y_fake = g(alt_condition, oars)
-        D_fake = d(y_fake.detach(), oars)
+        D_fake = d(y_fake.detach(), disc_alt_condition, oars)
 
     #print("D_fake: ", torch.mean(D_fake))
     D_fake_loss = adv_criterion(D_fake, torch.zeros_like(D_fake))
     D_loss = (D_real_loss + D_fake_loss) / 2
     return D_loss, D_real_loss, D_fake_loss
 
-def getGLoss(g, d, real_dose, oars, alt_condition, adv_criterion, voxel_criterion, alpha, beta):
+def getGLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_criterion, voxel_criterion, alpha, beta):
     y_fake = g(alt_condition, oars)
-    D_fake = d(y_fake, oars)
+    D_fake = d(y_fake, disc_alt_condition, oars)
     G_Dcomp_loss_train = adv_criterion(D_fake, torch.ones_like(D_fake))
     G_voxel_loss = voxel_criterion(y_fake, real_dose) / torch.numel(y_fake)
     G_masked_G_voxel_loss = voxel_criterion(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
@@ -243,26 +243,28 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         d.train()
         for idx, volumes in enumerate(train_loader):
             real_dose = volumes[:, 0, :, :, :].unsqueeze(1).float()
+            est_dose = volumes[:, 1, :, :, :].unsqueeze(1).float()
             #order of stack is: [real dose; estimated dose; oars; CT; Prescription]
             if alt_condition_volume == "ED": #ED only
-                alt_condition = volumes[:, 1, :, :, :].unsqueeze(1).float()
+                alt_condition = est_dose
             elif alt_condition_volume == "CT": #prescription and ct
                 alt_condition = torch.cat((volumes[:, 4, :, :, :].unsqueeze(1).float(), volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
             elif alt_condition_volume == "EDCT":  #ED and CT
                 alt_condition = torch.cat(
-                    (volumes[:, 1, :, :, :].unsqueeze(1).float(), volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
+                    (est_dose, volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
             else:
                 raise Exception("Check alternative condition volume")
 
             alt_condition = alt_condition.cuda()
             oars = volumes[:, 2, :, :, :].unsqueeze(1).float()
 
+            est_dose = est_dose.cuda()
             real_dose = real_dose.cuda()
             oars = oars.cuda()
 
             # Train Discriminator
             with torch.cuda.amp.autocast():
-                D_loss, D_real_loss, D_fake_loss = getDLoss(g, d, real_dose, oars, alt_condition, adv_criterion)
+                D_loss, D_real_loss, D_fake_loss = getDLoss(g, d, real_dose, oars, alt_condition, est_dose, adv_criterion)
 
             if epoch % d_update_ratio == 0:
                 d.zero_grad()
@@ -274,7 +276,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
             with torch.cuda.amp.autocast():
                 #Note the y_fake that is returned has NOT been detached
                 G_loss, G_Dcomp_loss_train, voxel_loss_train, masked_voxel_loss_train, y_fake = getGLoss(g, d, real_dose, oars,
-                                                                                               alt_condition, adv_criterion,
+                                                                                               alt_condition, est_dose, adv_criterion,
                                                                                                voxel_criterion, alpha, beta)
 
             opt_g.zero_grad()
@@ -309,12 +311,13 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
             for test_idx, test_volumes in enumerate(test_loader):
                 with torch.no_grad():
                     real_dose_test = test_volumes[:, 0, :, :, :].unsqueeze(1).float()
+                    est_dose_test = test_volumes[:, 1, :, :, :].unsqueeze(1).float()
                     if alt_condition_volume == "ED": #ED only
-                        alt_condition_test = test_volumes[:, 1, :, :, :].unsqueeze(1).float()
+                        alt_condition_test = est_dose_test
                     elif alt_condition_volume == "CT": #Prescription and CT
                         alt_condition_test = torch.cat((test_volumes[:, 4, :, :, :].unsqueeze(1).float(), test_volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
                     elif alt_condition_volume == "EDCT": #ED and CT
-                        alt_condition_test = torch.cat((test_volumes[:, 1, :, :, :].unsqueeze(1).float(),
+                        alt_condition_test = torch.cat((est_dose_test,
                                                         test_volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
                     else:
                         raise Exception("Check alternative condition volume")
@@ -323,14 +326,16 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                     alt_condition_test = alt_condition_test.cuda()
                     real_dose_test = real_dose_test.cuda()
                     oars_test = oars_test.cuda()
+                    est_dose_test = est_dose_test.cuda()
 
-                    D_loss_test, D_real_loss_test, D_fake_loss_test = getDLoss(g, d, real_dose_test, oars_test, alt_condition_test, adv_criterion)
+                    D_loss_test, D_real_loss_test, D_fake_loss_test = getDLoss(g, d, real_dose_test, oars_test, alt_condition_test, est_dose_test, adv_criterion)
 
                     #Returned y_fake_test NOT been detached
                     G_loss_test, G_Dcomp_loss_test, voxel_loss_test, masked_voxel_loss_test, y_fake_test = getGLoss(g, d,
                                                                                                            real_dose_test,
                                                                                                            oars_test,
                                                                                                            alt_condition_test,
+                                                                                                                    est_dose_test,
                                                                                                            adv_criterion,
                                                                                                            voxel_criterion, alpha, beta)
 

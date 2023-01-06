@@ -250,7 +250,7 @@ class Discriminator(nn.Module):
 
         self.verbose = verbose
 
-        num_features = [2, 16, 32, 64, 128]
+        num_features = [3, 16, 32, 64, 128]
 
         self.downs = nn.ModuleList()
         self.num_layers = len(num_features) - 1
@@ -262,7 +262,8 @@ class Discriminator(nn.Module):
             #nn.Sigmoid()
         )
 
-    def forward(self, x, oars):
+    def forward(self, x, alt_cond, oars):
+        x = torch.cat((x, alt_cond), dim=1)
         x = torch.cat((x, oars), dim=1)
 
         for d in self.downs:
