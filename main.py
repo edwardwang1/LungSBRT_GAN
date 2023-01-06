@@ -150,14 +150,14 @@ def getDLoss(g, d, real_dose, oars, alt_condition, adv_loss):
     D_loss = (D_real_loss + D_fake_loss) / 2
     return D_loss, D_real_loss, D_fake_loss
 
-def getGLoss(g, d, real_dose, oars, alt_condition, adv_loss, unet_loss):
+def getGLoss(g, d, real_dose, oars, alt_condition, adv_loss, unet_loss, alpha, beta):
     y_fake = g(alt_condition, oars)
     D_fake = d(y_fake, oars)
     G_Dcomp_loss_train = adv_loss(D_fake, torch.ones_like(D_fake))
-    UNET_loss_train = unet_loss(y_fake, real_dose) / torch.numel(y_fake)
-    masked_UNET_loss_train = unet_loss(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
-    G_loss = G_Dcomp_loss_train + alpha * ((1 - beta) * UNET_loss_train + beta * masked_UNET_loss_train)
-    return G_loss, G_Dcomp_loss_train, UNET_loss_train, masked_UNET_loss_train, y_fake
+    G_voxel_loss = unet_loss(y_fake, real_dose) / torch.numel(y_fake)
+    G_masked_G_voxel_loss = unet_loss(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
+    G_loss = G_Dcomp_loss_train + alpha * ((1 - beta) * G_voxel_loss + beta * G_masked_G_voxel_loss)
+    return G_loss, G_Dcomp_loss_train, G_voxel_loss, G_masked_G_voxel_loss, y_fake
 
 def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     num_epochs = params["num_epochs"]
@@ -289,7 +289,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                 #Note the y_fake that is returned has NOT been detached
                 G_loss, G_Dcomp_loss_train, UNET_loss_train, masked_UNET_loss_train, y_fake = getGLoss(g, d, real_dose, oars,
                                                                                                alt_condition, adv_loss,
-                                                                                               unet_loss)
+                                                                                               unet_loss, alpha, beta)
                 # if recalc_fake:
                 #     y_fake = g(alt_condition, oars)
                 # D_fake = d(y_fake, oars)
@@ -363,7 +363,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                                                                                                            oars_test,
                                                                                                            alt_condition_test,
                                                                                                            adv_loss,
-                                                                                                           unet_loss)
+                                                                                                           unet_loss, alpha, beta)
 
                     # G_Dcomp_loss_test = adv_loss(D_fake_test, torch.ones_like(D_fake_test))
                     # UNET_loss_test = unet_loss(y_fake_test, real_dose_test) / torch.numel(y_fake_test)
