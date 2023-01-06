@@ -29,7 +29,6 @@ def getV_XfromTensor(doseVolume, oarVolume, oarCode, doseTarget):
     V_Xs = []
     for i in range(doseVolume.shape[0]):
         V_Xs.append((greaterThanDose[i] * oar[i]).sum()/oar[i].sum() * 100)
-    print(V_Xs)
     return np.array(V_Xs)
 
 def saveImg4by3(v1, v2, v3, v4, save_path):
@@ -137,25 +136,25 @@ def saveImgNby3(arrs, ct, save_path, labels=None):
     plt.savefig(save_path, format="png", dpi=1000, bbox_inches='tight')
     plt.close(fig)
 
-def getDLoss(g, d, real_dose, oars, alt_condition, adv_loss):
+def getDLoss(g, d, real_dose, oars, alt_condition, adv_criterion):
     D_real = d(real_dose, oars)
     #print("D_real: ", torch.mean(D_real))
-    D_real_loss = adv_loss(D_real, torch.ones_like(D_real))
+    D_real_loss = adv_criterion(D_real, torch.ones_like(D_real))
     with torch.no_grad():
         y_fake = g(alt_condition, oars)
         D_fake = d(y_fake.detach(), oars)
 
     #print("D_fake: ", torch.mean(D_fake))
-    D_fake_loss = adv_loss(D_fake, torch.zeros_like(D_fake))
+    D_fake_loss = adv_criterion(D_fake, torch.zeros_like(D_fake))
     D_loss = (D_real_loss + D_fake_loss) / 2
     return D_loss, D_real_loss, D_fake_loss
 
-def getGLoss(g, d, real_dose, oars, alt_condition, adv_loss, unet_loss, alpha, beta):
+def getGLoss(g, d, real_dose, oars, alt_condition, adv_criterion, voxel_criterion, alpha, beta):
     y_fake = g(alt_condition, oars)
     D_fake = d(y_fake, oars)
-    G_Dcomp_loss_train = adv_loss(D_fake, torch.ones_like(D_fake))
-    G_voxel_loss = unet_loss(y_fake, real_dose) / torch.numel(y_fake)
-    G_masked_G_voxel_loss = unet_loss(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
+    G_Dcomp_loss_train = adv_criterion(D_fake, torch.ones_like(D_fake))
+    G_voxel_loss = voxel_criterion(y_fake, real_dose) / torch.numel(y_fake)
+    G_masked_G_voxel_loss = voxel_criterion(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
     G_loss = G_Dcomp_loss_train + alpha * ((1 - beta) * G_voxel_loss + beta * G_masked_G_voxel_loss)
     return G_loss, G_Dcomp_loss_train, G_voxel_loss, G_masked_G_voxel_loss, y_fake
 
@@ -199,18 +198,18 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     opt_g = optim.Adam(g.parameters(), lr=g_lr, betas=(0.5, 0.999), )
     opt_d = optim.Adam(d.parameters(), lr=d_lr, betas=(0.5, 0.999), )
     if adv_loss_type == "ls":
-        adv_loss = nn.MSELoss(reduction="mean").cuda()
+        adv_criterion = nn.MSELoss(reduction="mean").cuda()
     elif adv_loss_type == "bce":
-        adv_loss = nn.BCEWithLogitsLoss().cuda()
+        adv_criterion = nn.BCEWithLogitsLoss().cuda()
     #
     L2_LOSS_sum = nn.MSELoss(reduction="sum").cuda()
 
     if loss_type == "l1":
-        unet_loss = nn.L1Loss(reduction="sum").cuda()
+        voxel_criterion = nn.L1Loss(reduction="sum").cuda()
     elif loss_type == "gdl":
-        unet_loss = GDL()
+        voxel_criterion = GDL()
     elif loss_type == "l2":
-        unet_loss = nn.MSELoss(reduction="sum").cuda()
+        voxel_criterion = nn.MSELoss(reduction="sum").cuda()
 
     # train_dataset = Volumes(train_dir)
     train_dataset = VolumesFromList(data_dir, patientList_dir, valFold=3, testingHoldoutFold=4, test=False)
@@ -263,20 +262,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 
             # Train Discriminator
             with torch.cuda.amp.autocast():
-                D_loss, D_real_loss, D_fake_loss = getDLoss(g, d, real_dose, oars, alt_condition, adv_loss)
-                # D_real = d(real_dose, oars)
-                # print("D_real: ", torch.mean(D_real))
-                # D_real_loss = adv_loss(D_real, torch.ones_like(D_real))
-                # if recalc_fake:
-                #     with torch.no_grad():
-                #         y_fake = g(alt_condition, oars)
-                #         D_fake = d(y_fake.detach(), oars)
-                # else:
-                #     y_fake = g(alt_condition, oars)
-                #     D_fake = d(y_fake, oars)
-                # print("D_fake: ", torch.mean(D_fake))
-                # D_fake_loss = adv_loss(D_fake, torch.zeros_like(D_fake))
-                # D_loss = (D_real_loss + D_fake_loss) / 2
+                D_loss, D_real_loss, D_fake_loss = getDLoss(g, d, real_dose, oars, alt_condition, adv_criterion)
 
             if epoch % d_update_ratio == 0:
                 d.zero_grad()
@@ -287,16 +273,9 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
             # Train Generator
             with torch.cuda.amp.autocast():
                 #Note the y_fake that is returned has NOT been detached
-                G_loss, G_Dcomp_loss_train, UNET_loss_train, masked_UNET_loss_train, y_fake = getGLoss(g, d, real_dose, oars,
-                                                                                               alt_condition, adv_loss,
-                                                                                               unet_loss, alpha, beta)
-                # if recalc_fake:
-                #     y_fake = g(alt_condition, oars)
-                # D_fake = d(y_fake, oars)
-                # G_Dcomp_loss_train = adv_loss(D_fake, torch.ones_like(D_fake))
-                # UNET_loss_train = unet_loss(y_fake, real_dose) / torch.numel(y_fake)
-                # masked_UNET_loss_train = unet_loss(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
-                # G_loss = G_Dcomp_loss_train + alpha * ((1 - beta) * UNET_loss_train + beta * masked_UNET_loss_train)
+                G_loss, G_Dcomp_loss_train, voxel_loss_train, masked_voxel_loss_train, y_fake = getGLoss(g, d, real_dose, oars,
+                                                                                               alt_condition, adv_criterion,
+                                                                                               voxel_criterion, alpha, beta)
 
             opt_g.zero_grad()
             g_scaler.scale(G_loss).backward()
@@ -321,7 +300,6 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         fake_V20_train = getV_XfromTensor(y_fake, oars, oarCodes["lung"], 20)
         true_V20_train = getV_XfromTensor(real_dose, oars, oarCodes["lung"], 20)
         diff_train_V20 = np.mean(np.abs(true_V20_train - fake_V20_train))
-        print("train V20: ", diff_train_V20)
 
         # Testing
         if epoch % interval == 0:
@@ -346,29 +324,15 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                     real_dose_test = real_dose_test.cuda()
                     oars_test = oars_test.cuda()
 
-                    D_loss_test, D_real_loss_test, D_fake_loss_test = getDLoss(g, d, real_dose_test, oars_test, alt_condition_test, adv_loss)
-
-                    # y_fake_test = g(alt_condition_test, oars_test).detach()
-                    #
-                    # D_real_test = d(real_dose_test, oars_test)
-                    # D_fake_test = d(y_fake_test, oars_test)
-                    #
-                    # D_real_loss_test = adv_loss(D_real_test, torch.ones_like(D_real_test))
-                    # D_fake_loss_test = adv_loss(D_fake_test, torch.zeros_like(D_fake_test))
-                    # D_loss_test = (D_real_loss_test + D_fake_loss_test) / 2
+                    D_loss_test, D_real_loss_test, D_fake_loss_test = getDLoss(g, d, real_dose_test, oars_test, alt_condition_test, adv_criterion)
 
                     #Returned y_fake_test NOT been detached
-                    G_loss_test, G_Dcomp_loss_test, UNET_loss_test, masked_UNET_loss_test, y_fake_test = getGLoss(g, d,
+                    G_loss_test, G_Dcomp_loss_test, voxel_loss_test, masked_voxel_loss_test, y_fake_test = getGLoss(g, d,
                                                                                                            real_dose_test,
                                                                                                            oars_test,
                                                                                                            alt_condition_test,
-                                                                                                           adv_loss,
-                                                                                                           unet_loss, alpha, beta)
-
-                    # G_Dcomp_loss_test = adv_loss(D_fake_test, torch.ones_like(D_fake_test))
-                    # UNET_loss_test = unet_loss(y_fake_test, real_dose_test) / torch.numel(y_fake_test)
-                    # masked_UNET_loss_test = unet_loss(y_fake_test * (oars_test > 0), real_dose_test * (oars_test > 0)) / torch.sum(oars_test > 0)
-                    # G_loss_test += G_Dcomp_loss_test + alpha * ((1 - beta) * UNET_loss_test + beta * masked_UNET_loss_test)
+                                                                                                           adv_criterion,
+                                                                                                           voxel_criterion, alpha, beta)
 
             G_loss_test /= (test_idx + 1)
 
@@ -421,10 +385,10 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         writer.add_scalar('Masked_MSE/test', masked_test_mse_loss, epoch)
         writer.add_scalar('G_D_loss/train', G_Dcomp_loss_train, epoch)
         writer.add_scalar('G_D_loss/test', G_Dcomp_loss_test, epoch)
-        writer.add_scalar('G_UNET_loss/train', UNET_loss_train, epoch)
-        writer.add_scalar('G_UNET_loss/test', UNET_loss_test, epoch)
-        writer.add_scalar('Masked_G_UNET_loss/train', masked_UNET_loss_train, epoch)
-        writer.add_scalar('Masked_G_UNET_loss/test', masked_UNET_loss_test, epoch)
+        writer.add_scalar('G_Voxel_loss/train', voxel_loss_train, epoch)
+        writer.add_scalar('G_Voxel_loss/test', voxel_loss_test, epoch)
+        writer.add_scalar('Masked_G_Voxel_loss/train', masked_voxel_loss_train, epoch)
+        writer.add_scalar('Masked_G_Voxel_loss/test', masked_voxel_loss_test, epoch)
         writer.add_scalar('Diff_V20/train', diff_train_V20, epoch)
         writer.add_scalar('Diff_V20/test', diff_test_V20, epoch)
 
