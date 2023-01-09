@@ -503,7 +503,7 @@ if __name__ == '__main__':
                                     "log_interval": log_interval,
                                 }
 
-                                exp_name = f'dLR={d_lr}_LossType={loss_type}_Alpha={alpha}_Beta={beta}' \
+                                exp_name = f'dLR={d_lr}_LossType={loss_type}_gLR={g_lr}_Alpha={alpha}_Beta={beta}' \
                                            f'_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}' \
                                            f'_Attention={generator_attention}_Cond={alt_condition_volume}' \
                                            f'_AdvLossType={adv_loss_type}'
