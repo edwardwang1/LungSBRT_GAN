@@ -162,7 +162,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     num_epochs = params["num_epochs"]
     alpha = params["alpha"]
     beta = params["beta"]
-    interval = 20
+    log_interval = params["log_interval"]
     loss_type = params["loss_type"]
     d_update_ratio = params["d_update_ratio"]
     batch_size = params["batch_size"]
@@ -266,7 +266,14 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
             with torch.cuda.amp.autocast():
                 D_loss, D_real_loss, D_fake_loss = getDLoss(g, d, real_dose, oars, alt_condition, est_dose, adv_criterion)
 
-            if epoch % d_update_ratio == 0:
+            #Update disc less often than gen if d_update_ratio > 1
+            if round(d_update_ratio) >= 1:
+                if epoch % round(d_update_ratio) == 0:
+                    d.zero_grad()
+                    d_scaler.scale(D_loss).backward(retain_graph=True)
+                    d_scaler.step(opt_d)
+                    d_scaler.update()
+            else:
                 d.zero_grad()
                 d_scaler.scale(D_loss).backward(retain_graph=True)
                 d_scaler.step(opt_d)
@@ -278,11 +285,18 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                 G_loss, G_Dcomp_loss_train, voxel_loss_train, masked_voxel_loss_train, y_fake = getGLoss(g, d, real_dose, oars,
                                                                                                alt_condition, est_dose, adv_criterion,
                                                                                                voxel_criterion, alpha, beta)
-
-            opt_g.zero_grad()
-            g_scaler.scale(G_loss).backward()
-            g_scaler.step(opt_g)
-            g_scaler.update()
+            #Update gen less often than disc if g_update_ratio > 1
+            if round(d_update_ratio) <= 1:
+                if epoch % round(1/d_update_ratio) == 0:
+                    opt_g.zero_grad()
+                    g_scaler.scale(G_loss).backward()
+                    g_scaler.step(opt_g)
+                    g_scaler.update()
+            else:
+                opt_g.zero_grad()
+                g_scaler.scale(G_loss).backward()
+                g_scaler.step(opt_g)
+                g_scaler.update()
 
         # save weights
         weights_path = os.path.join(save_dir, "Weights", exp_name_base, exp_name)
@@ -304,7 +318,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         diff_train_V20 = np.mean(np.abs(true_V20_train - fake_V20_train))
 
         # Testing
-        if epoch % interval == 0:
+        if epoch % log_interval == 0:
             g.eval()
             d.eval()
             G_loss_test = 0
@@ -359,7 +373,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
             os.makedirs(os.path.join(images_save_path))
 
         # Saves images for all items in last batch
-        if epoch % interval == 0:
+        if epoch % log_interval == 0:
             y_fake_test = y_fake_test.cpu().numpy()
             real_dose_test = real_dose_test.cpu().numpy()
             alt_condition_test = alt_condition_test.detach().cpu().numpy()
@@ -400,7 +414,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 
     writer.add_hparams(
         {"epochs": num_epochs, "alpha": alpha, "beta": beta, "loss_type": loss_type, "d_update_ratio": d_update_ratio,
-         "attention": generator_attention, "batch_size": batch_size, "g_lr": g_lr, "d_lr": g_lr, "condition": alt_condition_volume},
+         "attention": generator_attention, "batch_size": batch_size, "g_lr": g_lr, "d_lr": g_lr, "condition": alt_condition_volume,
+         "adv_loss_type": adv_loss_type},
         {"hparam/last_mse_loss_test": test_mse_loss, "hparam/last_g_loss_test": G_loss_test,
          "hparam/last_d_loss_test": D_loss_test},
         run_name=log_path)  # <- see here
@@ -423,10 +438,12 @@ if __name__ == '__main__':
         parser.add_argument("--alpha", type=float)
         parser.add_argument("--beta", type=float)
         parser.add_argument("--loss_type", type=str)
-        parser.add_argument("--dur", type=int)
+        parser.add_argument("--dur", type=float)
         parser.add_argument("--g_lr", type=float)
         parser.add_argument("--d_lr", type=float)
         parser.add_argument("--adv_loss_type", type=str)
+        parser.add_argument("--log_interval", type=int)
+
         #parser.add_argument("--recalc_fake", action=argparse.BooleanOptionalAction)
 
         args = parser.parse_args()
@@ -444,6 +461,7 @@ if __name__ == '__main__':
         d_lrs = [args.d_lr]
         #recalc_fake = args.recalc_fake
         adv_loss_types = [args.adv_loss_type]
+        log_interval = args.log_interval
 
     else:
         num_epochs = config.NUM_EPOCHS
@@ -459,6 +477,7 @@ if __name__ == '__main__':
         d_lrs = config.D_LR
         #recalc_fake = config.RECALC_FAKE
         adv_loss_types = config.ADV_LOSS_TYPE
+        log_interval = config.LOG_INTERVAL
 
     runNum = 0
     for alpha in alphas:
@@ -481,6 +500,7 @@ if __name__ == '__main__':
                                     "d_lr": float(d_lr),
                                     #"recalc_fake": recalc_fake,
                                     "adv_loss_type": adv_loss_type,
+                                    "log_interval": log_interval,
                                 }
 
                                 exp_name = f'dLR={d_lr}_LossType={loss_type}_Alpha={alpha}_Beta={beta}' \
