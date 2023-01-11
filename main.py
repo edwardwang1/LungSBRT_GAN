@@ -108,7 +108,7 @@ def saveImgNby3(arrs, ct, save_path, labels=None):
     images_ct.append(ct[:, sag_loc, :][::-1, ::-1])
     images_ct.append(ct[:, :, cor_loc][::-1, ::-1])
 
-    min_threshold = 25
+    min_threshold = 0
     for i, ax in enumerate(axes.flatten()):
         transparency_mask = (images[i] > min_threshold).astype(int) * 0.99
         ax.imshow(images[i], cmap="rainbow", vmin=min_overall, vmax=max_overall, alpha=transparency_mask)
@@ -171,6 +171,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     g_lr = params["g_lr"]
     d_lr = params["d_lr"]
     adv_loss_type = params["adv_loss_type"]
+    pretrain_disc = params["pretrain_disc"]
+    pretrain_disc_epoch = params["pretrain_disc_epoch"]
 
     #g_lr = 2e-4
     #d_lr = 2e-4
@@ -229,6 +231,33 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 
     g_scaler = torch.cuda.amp.GradScaler()
     d_scaler = torch.cuda.amp.GradScaler()
+
+    # Pretrain discriminator if pretrain_disc is True
+    if pretrain_disc:
+        for pretrain_epoch in range(pretrain_disc_epoch):
+            #train discriminator only
+            for idx, volumes in enumerate(train_loader):
+                real_dose = volumes[:, 0, :, :, :].unsqueeze(1).float()
+                est_dose = volumes[:, 1, :, :, :].unsqueeze(1).float()
+                oars = volumes[:, 2, :, :, :].unsqueeze(1).float()
+
+                est_dose = est_dose.cuda()
+                real_dose = real_dose.cuda()
+                oars = oars.cuda()
+
+                D_real = d(real_dose, est_dose, oars)
+                D_fake = d(est_dose, est_dose, oars)
+
+                D_real_loss = adv_criterion(D_real, torch.ones_like(D_real))
+                D_fake_loss = adv_criterion(D_fake, torch.zeros_like(D_fake))
+
+                D_loss = (D_real_loss + D_fake_loss) / 2
+
+                d.zero_grad()
+                d_scaler.scale(D_loss).backward(retain_graph=True)
+                d_scaler.step(opt_d)
+                d_scaler.update()
+
     # mkd
     log_path = os.path.join(save_dir, "Logs", exp_name_base, exp_name)
     if not os.path.exists(log_path):
@@ -415,7 +444,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     writer.add_hparams(
         {"epochs": num_epochs, "alpha": alpha, "beta": beta, "loss_type": loss_type, "d_update_ratio": d_update_ratio,
          "attention": generator_attention, "batch_size": batch_size, "g_lr": g_lr, "d_lr": g_lr, "condition": alt_condition_volume,
-         "adv_loss_type": adv_loss_type},
+         "adv_loss_type": adv_loss_type, "pretrain_disc": pretrain_disc, "pretrain_disc_epoch": pretrain_disc_epoch,},
         {"hparam/last_mse_loss_test": test_mse_loss, "hparam/last_g_loss_test": G_loss_test,
          "hparam/last_d_loss_test": D_loss_test},
         run_name=log_path)  # <- see here
@@ -443,6 +472,8 @@ if __name__ == '__main__':
         parser.add_argument("--d_lr", type=float)
         parser.add_argument("--adv_loss_type", type=str)
         parser.add_argument("--log_interval", type=int)
+        parser.add_argument("--pretrain_disc", action=argparse.BooleanOptionalAction)
+        parser.add_argument("--pretrain_disc_epochs", type=int)
 
         #parser.add_argument("--recalc_fake", action=argparse.BooleanOptionalAction)
 
@@ -462,6 +493,8 @@ if __name__ == '__main__':
         #recalc_fake = args.recalc_fake
         adv_loss_types = [args.adv_loss_type]
         log_interval = args.log_interval
+        pretrain_disc = args.pretrain_disc
+        pretrain_disc_epochs = [args.pretrain_disc_epochs]
 
     else:
         num_epochs = config.NUM_EPOCHS
@@ -478,6 +511,8 @@ if __name__ == '__main__':
         #recalc_fake = config.RECALC_FAKE
         adv_loss_types = config.ADV_LOSS_TYPE
         log_interval = config.LOG_INTERVAL
+        pretrain_disc = config.PRETRAIN_DISC
+        pretrain_disc_epochs = config.PRETRAIN_DISC_EPOCHS
 
     runNum = 0
     for alpha in alphas:
@@ -487,29 +522,29 @@ if __name__ == '__main__':
                     for g_lr in g_lrs:
                         for d_lr in d_lrs:
                             for adv_loss_type in adv_loss_types:
-                                params = {
-                                    "num_epochs": num_epochs,
-                                    "alpha": alpha,
-                                    "beta": beta,
-                                    "loss_type": loss_type,
-                                    "d_update_ratio": d_update_ratio,
-                                    "batch_size": batch_size,
-                                    "generator_attention": generator_attention,
-                                    "alt_condition_volume": alt_condition_volume,
-                                    "g_lr": float(g_lr),
-                                    "d_lr": float(d_lr),
-                                    #"recalc_fake": recalc_fake,
-                                    "adv_loss_type": adv_loss_type,
-                                    "log_interval": log_interval,
-                                }
+                                for pretrain_disc_epoch in pretrain_disc_epochs:
+                                    params = {
+                                        "num_epochs": num_epochs,
+                                        "alpha": alpha,
+                                        "beta": beta,
+                                        "loss_type": loss_type,
+                                        "d_update_ratio": d_update_ratio,
+                                        "batch_size": batch_size,
+                                        "generator_attention": generator_attention,
+                                        "alt_condition_volume": alt_condition_volume,
+                                        "g_lr": float(g_lr),
+                                        "d_lr": float(d_lr),
+                                        #"recalc_fake": recalc_fake,
+                                        "adv_loss_type": adv_loss_type,
+                                        "log_interval": log_interval,
+                                        "pretrain_disc": pretrain_disc,
+                                        "pretrain_disc_epoch": pretrain_disc_epoch,
+                                    }
 
-                                exp_name = f'dLR={d_lr}_LossType={loss_type}_gLR={g_lr}_Alpha={alpha}_Beta={beta}' \
-                                           f'_DUpdateRatio={d_update_ratio}_BatchSize={batch_size}' \
-                                           f'_Attention={generator_attention}_Cond={alt_condition_volume}' \
-                                           f'_AdvLossType={adv_loss_type}'
-                                print(params, exp_name)
-                                train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
+                                    exp_name = f'dLR={d_lr}_Lo={loss_type}_gLR={g_lr}_Alp={alpha}_Beta={beta}_DUR={d_update_ratio}_BtSiz={batch_size}_Att={generator_attention}_Con={alt_condition_volume}_AdvLo={adv_loss_type}_PrTD={pretrain_disc}_PrTDEp={pretrain_disc_epoch}'
+                                    print(params, exp_name)
+                                    train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
 
-                            runNum += 1
+                                    runNum += 1
 
 # C:\Users\wanged\Anaconda3\envs\LungGan\Scripts\t
