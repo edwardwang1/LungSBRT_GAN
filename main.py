@@ -64,7 +64,7 @@ def saveImgNby3(arrs, ct, save_path, labels=None):
     wspace = 0  # set to zero for no spacing
     hspace = wspace / float(aspect)
     # fix the figure height
-    figheight = 10  # inch
+    figheight = 10 / 5  # inch
     figwidth = (m + (m - 1) * wspace) / float((n + (n - 1) * hspace) * aspect) * figheight * fisasp
 
     fig, axes = plt.subplots(nrows=n, ncols=m, figsize=(figwidth, figheight))
@@ -113,7 +113,7 @@ def saveImgNby3(arrs, ct, save_path, labels=None):
         transparency_mask = (images[i] > min_threshold).astype(int) * 0.99
         ax.imshow(images[i], cmap="rainbow", vmin=min_overall, vmax=max_overall, alpha=transparency_mask)
         if i % 3 == 0:
-            ax.text(2, 5, labels[int(i / 3)], fontsize=12, fontweight="bold")
+            ax.text(2, 5, labels[int(i / 3)], fontsize=6, fontweight="bold")
         ax.imshow(images_ct[i % 3], cmap='gray', alpha=0.7)
         ax.axis('off')
 
@@ -133,8 +133,15 @@ def saveImgNby3(arrs, ct, save_path, labels=None):
     cax = fig.add_axes([right + 0.035, bottom, 0.035, top - bottom])
     fig.colorbar(sm, cax=cax)
 
-    plt.savefig(save_path, format="png", dpi=1000, bbox_inches='tight')
-    plt.close(fig)
+    #plt.savefig(save_path, format="png", dpi=100, bbox_inches='tight')
+
+    try:
+        plt.savefig(save_path, format="png", dpi=100, bbox_inches='tight')
+    except:
+        print("Error saving image: " + save_path)
+
+    #plt.close(fig)
+    return fig
 
 def getDLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_criterion):
     D_real = d(real_dose, disc_alt_condition, oars)
@@ -226,7 +233,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
-        shuffle=True
+        shuffle=False
     )
 
     g_scaler = torch.cuda.amp.GradScaler()
@@ -409,14 +416,12 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
             oars_test = oars_test.detach().cpu().numpy()
             ct_test = test_volumes[:, 3, :, :, :].unsqueeze(1).float().detach().numpy()
             for j in range(y_fake_test.shape[0]):
-                try:
-                    saveImgNby3(
-                        [y_fake_test[j, 0, :, :, :], real_dose_test[j, 0, :, :, :], alt_condition_test[j, 0, :, :, :]],
-                        ct_test[j, 0, :, :, :],
-                        os.path.join(images_save_path, str(j) + "_epoch" + str(epoch) + ".png"),
-                        labels=["Fake", "Real", "Condition"])
-                except:
-                    print("Error saving image")
+                plot = saveImgNby3(
+                    [y_fake_test[j, 0, :, :, :], real_dose_test[j, 0, :, :, :], alt_condition_test[j, 0, :, :, :]],
+                    ct_test[j, 0, :, :, :],
+                    os.path.join(images_save_path, str(j) + "_epoch" + str(epoch) + ".png"),
+                    labels=["Fake", "Real", "Condition"])
+                writer.add_figure("Images from Testing Set " + str(j), plot, epoch)
 
         # Logging
         writer.add_scalar('LossG/train', G_loss, epoch)
@@ -547,4 +552,4 @@ if __name__ == '__main__':
 
                                     runNum += 1
 
-# C:\Users\wanged\Anaconda3\envs\LungGan\Scripts\t
+# C:\Users\wanged\Anaconda3\envs\LungGan\Scripts\tensorboard.exe --port 6007 --logdir=runs
