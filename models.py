@@ -245,7 +245,7 @@ class AttentionGenerator(nn.Module):
         return x
 
 class Discriminator(nn.Module):
-    def __init__(self, verbose=False):
+    def __init__(self, last_conv_kernalsize=4, verbose=False):
         super(Discriminator, self).__init__()
 
         self.verbose = verbose
@@ -258,7 +258,7 @@ class Discriminator(nn.Module):
             self.downs.append(UNetDownBlock(num_features[i], num_features[i + 1]))
 
         self.last_layer = nn.Sequential(
-            nn.Conv3d(num_features[-1], 1, 4, 1, 1),
+            nn.Conv3d(num_features[-1], 1, last_conv_kernalsize, 1, 1),
             #nn.Sigmoid()
         )
 
@@ -270,29 +270,35 @@ class Discriminator(nn.Module):
             x = d(x)
 
         orig_shape = x.shape
+        if self.verbose:
+            print("before last layer", x.shape)
         x = self.last_layer(x)
+        if self.verbose:
+            print("after last layer", x.shape)
 
         # pad to original shape
-        if x.shape != orig_shape:
-            difference = np.array(orig_shape) - np.array(x.shape)
-            #        print(difference)
-            x = nn.functional.pad(x, (difference[3], 0, difference[4], 0, difference[2], 0))
-            if self.verbose:
-                print("x", x.shape)
+        # if x.shape != orig_shape:
+        #     difference = np.array(orig_shape) - np.array(x.shape)
+        #     #        print(difference)
+        #     x = nn.functional.pad(x, (difference[3], 0, difference[4], 0, difference[2], 0))
+        #     if self.verbose:
+        #         print("x", x.shape)
 
         return x
 
 if __name__ == '__main__':
-    model = Generator(3, 1, True)
-    print(model.first_layer)
-    # model = Discriminator(True)
-    # x = torch.randn((4, 1, 96, 160, 160))
-    # y = torch.randn((4, 1, 96, 160, 160))
+    #model = Generator(3, 1, True)
+    #print(model.first_layer)
+    model = Discriminator(6, True)
+    x = torch.randn((4, 1, 96, 160, 160))
+    y = torch.randn((4, 1, 96, 160, 160))
+    z = torch.randn((4, 1, 96, 160, 160))
     #
-    # device = torch.device('cuda:0')
-    # x = x.to(device)
-    # y = y.to(device)
-    # model.to(device)
-    #
-    # out = model(x, y)
+    device = torch.device('cuda:0')
+    x = x.to(device)
+    y = y.to(device)
+    z = z.to(device)
+    model.to(device)
+
+    out = model(x, y, z)
 

@@ -180,6 +180,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     adv_loss_type = params["adv_loss_type"]
     pretrain_disc = params["pretrain_disc"]
     pretrain_disc_epoch = params["pretrain_disc_epoch"]
+    disc_last_layer_ks = params["disc_last_layer_ks"]
 
     #g_lr = 2e-4
     #d_lr = 2e-4
@@ -201,7 +202,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
             g = Generator(3, 1)
 
     g.cuda()
-    d = Discriminator()
+    d = Discriminator(last_conv_kernalsize=disc_last_layer_ks)
     d.cuda()
 
     opt_g = optim.Adam(g.parameters(), lr=g_lr, betas=(0.5, 0.999), )
@@ -445,11 +446,10 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         writer.add_scalar('Diff_V20/train', diff_train_V20, epoch)
         writer.add_scalar('Diff_V20/test', diff_test_V20, epoch)
 
-
     writer.add_hparams(
         {"epochs": num_epochs, "alpha": alpha, "beta": beta, "loss_type": loss_type, "d_update_ratio": d_update_ratio,
          "attention": generator_attention, "batch_size": batch_size, "g_lr": g_lr, "d_lr": g_lr, "condition": alt_condition_volume,
-         "adv_loss_type": adv_loss_type, "pretrain_disc": pretrain_disc, "pretrain_disc_epoch": pretrain_disc_epoch,},
+         "adv_loss_type": adv_loss_type, "pretrain_disc": pretrain_disc, "pretrain_disc_epoch": pretrain_disc_epoch, "disc_last_layer_ks": disc_last_layer_ks},
         {"hparam/last_mse_loss_test": test_mse_loss, "hparam/last_g_loss_test": G_loss_test,
          "hparam/last_d_loss_test": D_loss_test},
         run_name=log_path)  # <- see here
@@ -479,6 +479,7 @@ if __name__ == '__main__':
         parser.add_argument("--log_interval", type=int)
         parser.add_argument("--pretrain_disc", action=argparse.BooleanOptionalAction)
         parser.add_argument("--pretrain_disc_epochs", type=int)
+        parser.add_argument("--disc_last_layer_ks", type=int)
 
         #parser.add_argument("--recalc_fake", action=argparse.BooleanOptionalAction)
 
@@ -500,6 +501,7 @@ if __name__ == '__main__':
         log_interval = args.log_interval
         pretrain_disc = args.pretrain_disc
         pretrain_disc_epochs = [args.pretrain_disc_epochs]
+        disc_last_layer_ksizes = [args.disc_last_layer_ks]
 
     else:
         num_epochs = config.NUM_EPOCHS
@@ -518,6 +520,7 @@ if __name__ == '__main__':
         log_interval = config.LOG_INTERVAL
         pretrain_disc = config.PRETRAIN_DISC
         pretrain_disc_epochs = config.PRETRAIN_DISC_EPOCHS
+        disc_last_layer_ksizes = config.DISC_LAST_LAYER_KS
 
     runNum = 0
     for alpha in alphas:
@@ -528,28 +531,30 @@ if __name__ == '__main__':
                         for d_lr in d_lrs:
                             for adv_loss_type in adv_loss_types:
                                 for pretrain_disc_epoch in pretrain_disc_epochs:
-                                    params = {
-                                        "num_epochs": num_epochs,
-                                        "alpha": alpha,
-                                        "beta": beta,
-                                        "loss_type": loss_type,
-                                        "d_update_ratio": d_update_ratio,
-                                        "batch_size": batch_size,
-                                        "generator_attention": generator_attention,
-                                        "alt_condition_volume": alt_condition_volume,
-                                        "g_lr": float(g_lr),
-                                        "d_lr": float(d_lr),
-                                        #"recalc_fake": recalc_fake,
-                                        "adv_loss_type": adv_loss_type,
-                                        "log_interval": log_interval,
-                                        "pretrain_disc": pretrain_disc,
-                                        "pretrain_disc_epoch": pretrain_disc_epoch,
-                                    }
+                                    for disc_last_layer_ks in disc_last_layer_ksizes:
+                                        params = {
+                                            "num_epochs": num_epochs,
+                                            "alpha": alpha,
+                                            "beta": beta,
+                                            "loss_type": loss_type,
+                                            "d_update_ratio": d_update_ratio,
+                                            "batch_size": batch_size,
+                                            "generator_attention": generator_attention,
+                                            "alt_condition_volume": alt_condition_volume,
+                                            "g_lr": float(g_lr),
+                                            "d_lr": float(d_lr),
+                                            #"recalc_fake": recalc_fake,
+                                            "adv_loss_type": adv_loss_type,
+                                            "log_interval": log_interval,
+                                            "pretrain_disc": pretrain_disc,
+                                            "pretrain_disc_epoch": pretrain_disc_epoch,
+                                            "disc_last_layer_ks": disc_last_layer_ks,
+                                        }
 
-                                    exp_name = f'dLR={d_lr}_Lo={loss_type}_gLR={g_lr}_Alp={alpha}_Beta={beta}_DUR={d_update_ratio}_BtSiz={batch_size}_Att={generator_attention}_Con={alt_condition_volume}_AdvLo={adv_loss_type}_PrTD={pretrain_disc}_PrTDEp={pretrain_disc_epoch}'
-                                    print(params, exp_name)
-                                    train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
+                                        exp_name = f'dLR={d_lr}_Lo={loss_type}_gLR={g_lr}_A={alpha}_B={beta}_DUR={d_update_ratio}_BtSz={batch_size}_At={generator_attention}_Con={alt_condition_volume}_AdvLo={adv_loss_type}_PrTD={pretrain_disc}_PrTDEp={pretrain_disc_epoch}_DLLKS={disc_last_layer_ks}'
+                                        print(params, exp_name)
+                                        train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
 
-                                    runNum += 1
+                                        runNum += 1
 
-# C:\Users\wanged\Anaconda3\envs\LungGan\Scripts\tensorboard.exe --port 6007 --logdir=runs
+# C:\Users\wanged\Anaconda3\envs\L
