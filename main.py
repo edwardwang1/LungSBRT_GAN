@@ -149,11 +149,10 @@ def getDLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_crite
     #Implementing one sided label smoothing
     #D_real_loss = adv_criterion(D_real, torch.ones_like(D_real))
     D_real_loss = adv_criterion(D_real, torch.randn_like(D_real) * 0.1 + 0.9)
-    with torch.no_grad():
-        y_fake = g(alt_condition, oars)
-        D_fake = d(y_fake.detach(), disc_alt_condition, oars)
+    y_fake = g(alt_condition, oars)
+    D_fake = d(y_fake.detach(), disc_alt_condition, oars)
 
-    #print("D_fake: ", torch.mean(D_fake))
+    print("D_fake: ", torch.mean(D_fake))
     D_fake_loss = adv_criterion(D_fake, torch.zeros_like(D_fake))
     D_loss = (D_real_loss + D_fake_loss) / 2
     return D_loss, D_real_loss, D_fake_loss
