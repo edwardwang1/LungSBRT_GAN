@@ -152,7 +152,6 @@ def getDLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_crite
     y_fake = g(alt_condition, oars)
     D_fake = d(y_fake.detach(), disc_alt_condition, oars)
 
-    print("D_fake: ", torch.mean(D_fake))
     D_fake_loss = adv_criterion(D_fake, torch.zeros_like(D_fake))
     D_loss = (D_real_loss + D_fake_loss) / 2
     return D_loss, D_real_loss, D_fake_loss
@@ -533,29 +532,30 @@ if __name__ == '__main__':
                             for adv_loss_type in adv_loss_types:
                                 for pretrain_disc_epoch in pretrain_disc_epochs:
                                     for disc_last_layer_ks in disc_last_layer_ksizes:
-                                        params = {
-                                            "num_epochs": num_epochs,
-                                            "alpha": alpha,
-                                            "beta": beta,
-                                            "loss_type": loss_type,
-                                            "d_update_ratio": d_update_ratio,
-                                            "batch_size": batch_size,
-                                            "generator_attention": generator_attention,
-                                            "alt_condition_volume": alt_condition_volume,
-                                            "g_lr": float(g_lr),
-                                            "d_lr": float(d_lr),
-                                            #"recalc_fake": recalc_fake,
-                                            "adv_loss_type": adv_loss_type,
-                                            "log_interval": log_interval,
-                                            "pretrain_disc": pretrain_disc,
-                                            "pretrain_disc_epoch": pretrain_disc_epoch,
-                                            "disc_last_layer_ks": disc_last_layer_ks,
-                                        }
+                                        for c in alt_condition_volume:
+                                            params = {
+                                                "num_epochs": num_epochs,
+                                                "alpha": alpha,
+                                                "beta": beta,
+                                                "loss_type": loss_type,
+                                                "d_update_ratio": d_update_ratio,
+                                                "batch_size": batch_size,
+                                                "generator_attention": generator_attention,
+                                                "alt_condition_volume": c,
+                                                "g_lr": float(g_lr),
+                                                "d_lr": float(d_lr),
+                                                #"recalc_fake": recalc_fake,
+                                                "adv_loss_type": adv_loss_type,
+                                                "log_interval": log_interval,
+                                                "pretrain_disc": pretrain_disc,
+                                                "pretrain_disc_epoch": pretrain_disc_epoch,
+                                                "disc_last_layer_ks": disc_last_layer_ks,
+                                            }
 
-                                        exp_name = f'dLR={d_lr}_Lo={loss_type}_gLR={g_lr}_A={alpha}_B={beta}_DUR={d_update_ratio}_BtSz={batch_size}_At={generator_attention}_Con={alt_condition_volume}_AdvLo={adv_loss_type}_PrTD={pretrain_disc}_PrTDEp={pretrain_disc_epoch}_DLLKS={disc_last_layer_ks}'
-                                        print(params, exp_name)
-                                        train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
+                                            exp_name = f'dLR={d_lr}_Lo={loss_type}_gLR={g_lr}_A={alpha}_B={beta}_DUR={d_update_ratio}_BtSz={batch_size}_At={generator_attention}_Con={c}_AdvLo={adv_loss_type}_PrTD={pretrain_disc}_PrTDEp={pretrain_disc_epoch}_DLLKS={disc_last_layer_ks}'
+                                            print(params, exp_name)
+                                            train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
 
-                                        runNum += 1
+                                            runNum += 1
 
 # C:\Users\wanged\Anaconda3\envs\L
