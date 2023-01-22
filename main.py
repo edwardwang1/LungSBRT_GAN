@@ -181,6 +181,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     pretrain_disc = params["pretrain_disc"]
     pretrain_disc_epoch = params["pretrain_disc_epoch"]
     disc_last_layer_ks = params["disc_last_layer_ks"]
+    val_fold = params["val_fold"]
+    test_fold = params["test_fold"]
 
     #g_lr = 2e-4
     #d_lr = 2e-4
@@ -222,7 +224,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         voxel_criterion = nn.MSELoss(reduction="sum").cuda()
 
     # train_dataset = Volumes(train_dir)
-    train_dataset = VolumesFromList(data_dir, patientList_dir, valFold=3, testingHoldoutFold=4, test=False)
+    train_dataset = VolumesFromList(data_dir, patientList_dir, valFold=val_fold, testingHoldoutFold=test_fold, test=False)
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -230,7 +232,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     )
 
     # test_dataset = Volumes(test_dir)
-    test_dataset = VolumesFromList(data_dir, patientList_dir, valFold=3, testingHoldoutFold=4, test=True)
+    test_dataset = VolumesFromList(data_dir, patientList_dir, valFold=val_fold, testingHoldoutFold=test_fold, test=True)
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
@@ -480,6 +482,8 @@ if __name__ == '__main__':
         parser.add_argument("--pretrain_disc", action=argparse.BooleanOptionalAction)
         parser.add_argument("--pretrain_disc_epochs", type=int)
         parser.add_argument("--disc_last_layer_ks", type=int)
+        parser.add_argument("--val_fold", type=int)
+        parser.add_argument("--test_fold", type=int)
 
         #parser.add_argument("--recalc_fake", action=argparse.BooleanOptionalAction)
 
@@ -502,6 +506,8 @@ if __name__ == '__main__':
         pretrain_disc = args.pretrain_disc
         pretrain_disc_epochs = [args.pretrain_disc_epochs]
         disc_last_layer_ksizes = [args.disc_last_layer_ks]
+        val_fold = [args.val_fold]
+        test_fold = [args.test_fold]
 
     else:
         num_epochs = config.NUM_EPOCHS
@@ -521,6 +527,8 @@ if __name__ == '__main__':
         pretrain_disc = config.PRETRAIN_DISC
         pretrain_disc_epochs = config.PRETRAIN_DISC_EPOCHS
         disc_last_layer_ksizes = config.DISC_LAST_LAYER_KS
+        val_folds = config.VAL_FOLDS
+        test_folds = config.TEST_FOLDS
 
     runNum = 0
     for alpha in alphas:
@@ -533,29 +541,34 @@ if __name__ == '__main__':
                                 for pretrain_disc_epoch in pretrain_disc_epochs:
                                     for disc_last_layer_ks in disc_last_layer_ksizes:
                                         for c in alt_condition_volume:
-                                            params = {
-                                                "num_epochs": num_epochs,
-                                                "alpha": alpha,
-                                                "beta": beta,
-                                                "loss_type": loss_type,
-                                                "d_update_ratio": d_update_ratio,
-                                                "batch_size": batch_size,
-                                                "generator_attention": generator_attention,
-                                                "alt_condition_volume": c,
-                                                "g_lr": float(g_lr),
-                                                "d_lr": float(d_lr),
-                                                #"recalc_fake": recalc_fake,
-                                                "adv_loss_type": adv_loss_type,
-                                                "log_interval": log_interval,
-                                                "pretrain_disc": pretrain_disc,
-                                                "pretrain_disc_epoch": pretrain_disc_epoch,
-                                                "disc_last_layer_ks": disc_last_layer_ks,
-                                            }
+                                            for val_fold in val_folds:
+                                                for test_fold in test_folds:
+                                                    params = {
+                                                        "num_epochs": num_epochs,
+                                                        "alpha": alpha,
+                                                        "beta": beta,
+                                                        "loss_type": loss_type,
+                                                        "d_update_ratio": d_update_ratio,
+                                                        "batch_size": batch_size,
+                                                        "generator_attention": generator_attention,
+                                                        "alt_condition_volume": c,
+                                                        "g_lr": float(g_lr),
+                                                        "d_lr": float(d_lr),
+                                                        #"recalc_fake": recalc_fake,
+                                                        "adv_loss_type": adv_loss_type,
+                                                        "log_interval": log_interval,
+                                                        "pretrain_disc": pretrain_disc,
+                                                        "pretrain_disc_epoch": pretrain_disc_epoch,
+                                                        "disc_last_layer_ks": disc_last_layer_ks,
+                                                        "val_fold": val_fold,
+                                                        "test_fold": test_fold
+                                                    }
 
-                                            exp_name = f'dLR={d_lr}_Lo={loss_type}_gLR={g_lr}_A={alpha}_B={beta}_DUR={d_update_ratio}_BtSz={batch_size}_At={generator_attention}_Con={c}_AdvLo={adv_loss_type}_PrTD={pretrain_disc}_PrTDEp={pretrain_disc_epoch}_DLLKS={disc_last_layer_ks}'
-                                            print(params, exp_name)
-                                            train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
+                                                    #exp_name = f'dLR={d_lr}_Lo={loss_type}_gLR={g_lr}_A={alpha}_B={beta}_DUR={d_update_ratio}_BtSz={batch_size}_At={generator_attention}_Con={c}_AdvLo={adv_loss_type}_PrTD={pretrain_disc}_PrTDEp={pretrain_disc_epoch}_DLLKS={disc_last_layer_ks}'
+                                                    exp_name = f'dLR={d_lr}_gLR={g_lr}_A={alpha}_B={beta}_Con={c}_VF={val_fold}_TF={test_fold}'
+                                                    print(params, exp_name)
+                                                    train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
 
-                                            runNum += 1
+                                                    runNum += 1
 
 # C:\Users\wanged\Anaconda3\envs\L
