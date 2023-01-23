@@ -52,7 +52,7 @@ class VolumesFromList(Dataset):
     def __getitem__(self, idx):
         if self.test:
             if self.holdout:
-                print("test holdout")
+                #print("test holdout")
                 volumes = np.load(os.path.join(self.dataDirectory, self.testIDs[idx] + ".npy"))
             else:
                 volumes = np.load(os.path.join(self.dataDirectory, self.valIDs[idx] + ".npy"))

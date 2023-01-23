@@ -232,7 +232,10 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     )
 
     # test_dataset = Volumes(test_dir)
-    test_dataset = VolumesFromList(data_dir, patientList_dir, valFold=val_fold, testingHoldoutFold=test_fold, test=True)
+    holdout = False
+    if val_fold == -1:
+        holdout = True
+    test_dataset = VolumesFromList(data_dir, patientList_dir, valFold=val_fold, testingHoldoutFold=test_fold, test=True, holdout=holdout)
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
