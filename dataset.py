@@ -19,11 +19,13 @@ class Volumes(Dataset):
 
 
 class VolumesFromList(Dataset):
-    def __init__(self, dataDirectory, patientListDirectory, valFold, testingHoldoutFold, test=False):
+    def __init__(self, dataDirectory, patientListDirectory, valFold, testingHoldoutFold, test=False, holdout=False):
         self.dataDirectory = dataDirectory
         self.test = test
+        self.holdout = holdout
         self.trainIDs = []
         self.valIDs = []
+        self.testIDs = []
         for i in range(5):
             filePath = os.path.join(patientListDirectory, "fold" + str(i) + ".txt")
             with open(filePath) as f:
@@ -32,20 +34,28 @@ class VolumesFromList(Dataset):
                 for l in lines:
                     self.valIDs.append(l)
             elif i == testingHoldoutFold:
-                pass # this is holdout fold
+                for l in lines:
+                    self.testIDs.append(l)
             else: #train
                 for l in lines:
                     self.trainIDs.append(l)
 
     def __len__(self):  # The length of the dataset is important for iterating through it
         if self.test:
-            return len(self.valIDs)
+            if self.holdout:
+                return len(self.testIDs)
+            else:
+                return len(self.valIDs)
         else:
             return len(self.trainIDs)
 
     def __getitem__(self, idx):
         if self.test:
-            volumes = np.load(os.path.join(self.dataDirectory, self.valIDs[idx] + ".npy"))
+            if self.holdout:
+                print("test holdout")
+                volumes = np.load(os.path.join(self.dataDirectory, self.testIDs[idx] + ".npy"))
+            else:
+                volumes = np.load(os.path.join(self.dataDirectory, self.valIDs[idx] + ".npy"))
         else:
             volumes = np.load(os.path.join(self.dataDirectory, self.trainIDs[idx] + ".npy"))
 
@@ -53,3 +63,6 @@ class VolumesFromList(Dataset):
 
     def getValIDs(self):
         return self.valIDs
+
+    def getTestIDs(self):
+        return self.testIDs
