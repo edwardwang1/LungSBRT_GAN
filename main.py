@@ -11,8 +11,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 # Custom
 from models import Generator, Discriminator, AttentionGenerator
-from loss import GDL
-from dataset import Volumes, VolumesFromList
+from loss import GDL, V20Loss
+from dataset import VolumesFromList
 from config import load_config
 
 import matplotlib
@@ -156,13 +156,21 @@ def getDLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_crite
     D_loss = (D_real_loss + D_fake_loss) / 2
     return D_loss, D_real_loss, D_fake_loss
 
-def getGLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_criterion, voxel_criterion, alpha, beta):
+def getGLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_criterion, voxel_criterion, alpha, beta, V20Loss=False):
     y_fake = g(alt_condition, oars)
     D_fake = d(y_fake, disc_alt_condition, oars)
     G_Dcomp_loss_train = adv_criterion(D_fake, torch.ones_like(D_fake))
-    G_voxel_loss = voxel_criterion(y_fake, real_dose) / torch.numel(y_fake)
-    G_masked_G_voxel_loss = voxel_criterion(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
-    G_loss = G_Dcomp_loss_train + alpha * ((1 - beta) * G_voxel_loss + beta * G_masked_G_voxel_loss)
+
+    if V20Loss:
+        G_voxel_loss = voxel_criterion(y_fake, real_dose, oars)
+        G_loss = G_Dcomp_loss_train + alpha * G_voxel_loss
+        G_masked_G_voxel_loss = 0
+    else:
+        G_voxel_loss = voxel_criterion(y_fake, real_dose) / torch.numel(y_fake)
+        G_masked_G_voxel_loss = voxel_criterion(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
+        G_loss = G_Dcomp_loss_train + alpha * ((1 - beta) * G_voxel_loss + beta * G_masked_G_voxel_loss)
+
+
     return G_loss, G_Dcomp_loss_train, G_voxel_loss, G_masked_G_voxel_loss, y_fake
 
 def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
@@ -222,6 +230,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         voxel_criterion = GDL()
     elif loss_type == "l2":
         voxel_criterion = nn.MSELoss(reduction="sum").cuda()
+    elif loss_type == "V20":
+        voxel_criterion = V20Loss()
 
     # train_dataset = Volumes(train_dir)
     train_dataset = VolumesFromList(data_dir, patientList_dir, valFold=val_fold, testingHoldoutFold=test_fold, test=False)
@@ -326,7 +336,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                 #Note the y_fake that is returned has NOT been detached
                 G_loss, G_Dcomp_loss_train, voxel_loss_train, masked_voxel_loss_train, y_fake = getGLoss(g, d, real_dose, oars,
                                                                                                alt_condition, est_dose, adv_criterion,
-                                                                                               voxel_criterion, alpha, beta)
+                                                                                               voxel_criterion, alpha, beta, loss_type=="V20")
             #Update gen less often than disc if g_update_ratio > 1
             if round(d_update_ratio) <= 1:
                 if epoch % round(1/d_update_ratio) == 0:
@@ -393,7 +403,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                                                                                                            alt_condition_test,
                                                                                                                     est_dose_test,
                                                                                                            adv_criterion,
-                                                                                                           voxel_criterion, alpha, beta)
+                                                                                                           voxel_criterion, alpha, beta, loss_type=="V20")
 
             G_loss_test /= (test_idx + 1)
 
