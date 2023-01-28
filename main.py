@@ -358,8 +358,8 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         if epoch % 100 == 0 or epoch == num_epochs:
             torch.save(g.state_dict(),
                        os.path.join(weights_path, "GeneratorWeightsEpoch" + str(epoch) + ".pth"))
-            torch.save(d.state_dict(),
-                       os.path.join(weights_path, "DiscriminatorWeightsEpoch" + str(epoch) + ".pth"))
+            # torch.save(d.state_dict(),
+            #            os.path.join(weights_path, "DiscriminatorWeightsEpoch" + str(epoch) + ".pth"))
 
         # calculate extra losses and metrics
         y_fake = y_fake.detach()
