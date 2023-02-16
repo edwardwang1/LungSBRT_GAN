@@ -6,6 +6,7 @@ from inspect import isfunction
 from functools import partial
 from einops import rearrange, reduce
 from einops.layers.torch import Rearrange
+from torchviz import make_dot
 
 import math
 #adapted from https://nn.labml.ai/diffusion/ddpm/unet.html
@@ -163,13 +164,9 @@ class LinearAttention(nn.Module):
     def forward(self, x):
         b, c, h, w, l = x.shape
         qkv = self.to_qkv(x).chunk(3, dim=1)
-        print(qkv[0].shape)
         q, k, v = map(
             lambda t: rearrange(t, "b (h c) x y z-> b h c (x y z)", h=self.heads), qkv
         )
-
-        print(q.shape)
-
 
         q = q.softmax(dim=-2)
         k = k.softmax(dim=-1)
@@ -273,11 +270,15 @@ class Unet(nn.Module):
             )
 
         out_dim = default(out_dim, channels)
+        #out_dim = 1
         self.final_conv = nn.Sequential(
             block_klass(dim, dim), nn.Conv3d(dim, out_dim, 1)
         )
 
-    def forward(self, x, time):
+    def forward(self, x, condition, time):
+        if condition is not None:
+            x = torch.cat([x, condition], dim=1)
+
         x = self.init_conv(x)
 
         t = self.time_mlp(time) if exists(self.time_mlp) else None
@@ -310,19 +311,38 @@ class Unet(nn.Module):
 if __name__ == '__main__':
     device = torch.device('cuda:0')
 
-    image_size = 64
-    channels = 1
+    image_size = 8
+    channels = 4
 
     model = Unet(
         dim=image_size,
         channels=channels,
         dim_mults=(1, 2, 4,),
+        init_dim=None,
+        out_dim=1,
     )
     model.to(device)
 
-    xNoisy = torch.randn((1, 1, 64, 64, 64)).to(device)
+    batch_size = 1
+    dim1 = 64
+    dim2 = 64
+    dim3 = 64
 
-    print(torch.cat([xNoisy, xNoisy, xNoisy], dim=1).shape)
+    x = torch.randn((batch_size, 1, dim1, dim2, dim3)).to(device)
+    y = torch.randn((batch_size, 1, dim1, dim2, dim3)).to(device)
+    z = torch.randn((batch_size, 1, dim1, dim2, dim3)).to(device)
+    t = torch.randn((1)).to(device)
+    out = model(x, torch.cat([x, y, z], dim=1), t)
+    print("outshape", out.shape)
+    #out = model(x, t)
+
+    # a = make_dot(out.mean(), params=dict(model.named_parameters()), show_attrs=True, show_saved=True)
+    # a.view()
+
+
+    #xNoisy = torch.randn((1, 1, 96, 100, 144)).to(device)
+
+    #print(torch.cat([xNoisy, xNoisy, xNoisy], dim=1).shape)
 
     # t = torch.randn((1)).to(device)
     # out = model(xNoisy, t)
