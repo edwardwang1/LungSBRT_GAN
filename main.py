@@ -156,15 +156,19 @@ def getDLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_crite
     D_loss = (D_real_loss + D_fake_loss) / 2
     return D_loss, D_real_loss, D_fake_loss
 
-def getGLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_criterion, voxel_criterion, alpha, beta, V20Loss=False):
+def getGLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_criterion, voxel_criterion, alpha, beta, loss_type="l1"):
     y_fake = g(alt_condition, oars)
     D_fake = d(y_fake, disc_alt_condition, oars)
     G_Dcomp_loss_train = adv_criterion(D_fake, torch.ones_like(D_fake))
 
-    if V20Loss:
+    if loss_type == "V20":
         G_voxel_loss = voxel_criterion(y_fake, real_dose, oars)
         G_loss = G_Dcomp_loss_train + alpha * G_voxel_loss
         G_masked_G_voxel_loss = 0
+    elif loss_type == "lpips":
+        G_voxel_loss = voxel_criterion(y_fake, real_dose)
+        G_masked_G_voxel_loss = 0
+        G_loss = G_Dcomp_loss_train + alpha * G_voxel_loss
     else:
         G_voxel_loss = voxel_criterion(y_fake, real_dose) / torch.numel(y_fake)
         G_masked_G_voxel_loss = voxel_criterion(y_fake * (oars > 0), real_dose * (oars > 0)) / torch.sum(oars > 0)
@@ -348,7 +352,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                 #Note the y_fake that is returned has NOT been detached
                 G_loss, G_Dcomp_loss_train, voxel_loss_train, masked_voxel_loss_train, y_fake = getGLoss(g, d, real_dose, oars,
                                                                                                alt_condition, est_dose, adv_criterion,
-                                                                                               voxel_criterion, alpha, beta, loss_type=="V20")
+                                                                                               voxel_criterion, alpha, beta, loss_type=loss_type)
 
             #Update gen less often than disc if g_update_ratio > 1
             if round(d_update_ratio) <= 1:
@@ -416,7 +420,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                                                                                                            alt_condition_test,
                                                                                                                     est_dose_test,
                                                                                                            adv_criterion,
-                                                                                                           voxel_criterion, alpha, beta, loss_type=="V20")
+                                                                                                           voxel_criterion, alpha, beta, loss_type=loss_type)
 
             G_loss_test /= (test_idx + 1)
 
@@ -592,7 +596,7 @@ if __name__ == '__main__':
                                                     }
 
                                                     #exp_name = f'dLR={d_lr}_Lo={loss_type}_gLR={g_lr}_A={alpha}_B={beta}_DUR={d_update_ratio}_BtSz={batch_size}_At={generator_attention}_Con={c}_AdvLo={adv_loss_type}_PrTD={pretrain_disc}_PrTDEp={pretrain_disc_epoch}_DLLKS={disc_last_layer_ks}'
-                                                    exp_name = f'dLR={d_lr}_gLR={g_lr}_A={alpha}_B={beta}_Con={c}_Lo={loss_type}z`_VF={val_fold}_TF={test_fold}'
+                                                    exp_name = f'dLR={d_lr}_gLR={g_lr}_A={alpha}_B={beta}_Con={c}_Lo={loss_type}_VF={val_fold}_TF={test_fold}'
                                                     print(params, exp_name)
                                                     train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
 
