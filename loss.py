@@ -1,9 +1,10 @@
 import numpy as np
 import torch
+from torch import nn
 import lpips
 from einops import rearrange
 
-class GDL(torch.nn.Module):
+class GDL(nn.Module):
     def __init__(self):
         super(GDL, self).__init__()
     def forward(self,pred, target):
@@ -20,7 +21,7 @@ def getV_X(doseVolume, oarVolume, oarCode, doseTarget):
     greaterThanDose = doseVolume > doseTarget
     return (greaterThanDose * oar).sum()/oar.sum() * 100
 
-class V20Loss(torch.nn.Module):
+class V20Loss(nn.Module):
     def __init__(self):
         super(V20Loss, self).__init__()
     def forward(self, fake, real, oars):
@@ -39,11 +40,20 @@ class V20Loss(torch.nn.Module):
         # Return the difference
         return torch.abs((fakeV20Volume - realV20Volume) / lungVolume)
 
+class LinearScaler(nn.Module):
+    def __init__(self):
+        super(LinearScaler, self).__init__()
+
+    def forward(self, x, min, max):
+        # x is a tensor of any shape
+        scaled_x = (x - min) / (max - min) * 2 - 1
+        return scaled_x
+
 class LPIPSLoss(torch.nn.Module):
     def __init__(self):
         super(LPIPSLoss, self).__init__()
         self.loss_fn = lpips.LPIPS(net='vgg').cuda()
-
+        self.scaler = LinearScaler()
 
     def forward(self, fake, real):
         # Get the LPIPS loss
@@ -75,12 +85,16 @@ class LPIPSLoss(torch.nn.Module):
             d_index = max(d_index, 3)
             d_index = min(d_index, curr_tensor.shape[2] - 3)
 
-            acc_perceptual_loss += self.loss_fn.forward(fake[i, h_index - 1:h_index + 2, :, :].unsqueeze(0),
-                                                        real[i, h_index - 1:h_index + 2, :, :].unsqueeze(0))
-            acc_perceptual_loss += self.loss_fn.forward(rearrange(fake[i, :, w_index - 1: w_index + 2, :].unsqueeze(0), 'c h w d -> c w h d'),
-                                                        rearrange(real[i, :, w_index - 1: w_index + 2, :].unsqueeze(0), 'c h w d -> c w h d'),)
-            acc_perceptual_loss += self.loss_fn.forward(rearrange(fake[i, :, :, d_index - 1: d_index + 2].unsqueeze(0), 'c h w d -> c d w h'),
-                                                        rearrange(real[i, :, :, d_index - 1: d_index + 2].unsqueeze(0), 'c h w d -> c d w h'),)
+            #Get min and max of real for scaling
+            min_real = torch.min(real[i])
+            max_real = torch.max(real[i])
+
+            acc_perceptual_loss += self.loss_fn.forward(self.scaler(fake[i, h_index - 1:h_index + 2, :, :].unsqueeze(0), min_real, max_real),
+                                                        self.scaler(real[i, h_index - 1:h_index + 2, :, :].unsqueeze(0), min_real, max_real))
+            acc_perceptual_loss += self.loss_fn.forward(rearrange(self.scaler(fake[i, :, w_index - 1: w_index + 2, :].unsqueeze(0), min_real, max_real), 'c h w d -> c w h d'),
+                                                        (rearrange(self.scaler(real[i, :, w_index - 1: w_index + 2, :].unsqueeze(0), min_real, max_real), 'c h w d -> c w h d')))
+            acc_perceptual_loss += self.loss_fn.forward(rearrange(self.scaler(fake[i, :, :, d_index - 1: d_index + 2].unsqueeze(0), min_real, max_real), 'c h w d -> c d w h'),
+                                                        (rearrange(self.scaler(real[i, :, :, d_index - 1: d_index + 2].unsqueeze(0), min_real, max_real), 'c h w d -> c d w h')))
 
         return acc_perceptual_loss / (num_batches * 3.)
 
