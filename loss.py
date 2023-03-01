@@ -70,7 +70,7 @@ class LPIPSLoss(torch.nn.Module):
 
         #Iterate through batches
         for i in range(num_batches):
-            curr_tensor = fake[i] #should have dimensions (width, height, depth)
+            curr_tensor = real[i] #should have dimensions (width, height, depth)
             flat_index = torch.argmax(curr_tensor)
             #h_index = flat_index // (curr_tensor.shape[1] * curr_tensor.shape[2])
             h_index = int(torch.div(flat_index, (curr_tensor.shape[1] * curr_tensor.shape[2]), rounding_mode='floor'))
