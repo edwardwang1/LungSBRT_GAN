@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 # Custom
 from models import Generator, Discriminator, AttentionGenerator
-from loss import GDL, V20Loss
+from loss import GDL, V20Loss, LPIPSLoss
 from dataset import VolumesFromList
 from config import load_config
 
@@ -232,6 +232,9 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         voxel_criterion = nn.MSELoss(reduction="sum").cuda()
     elif loss_type == "V20":
         voxel_criterion = V20Loss()
+    elif loss_type == "lpips":
+        voxel_criterion = LPIPSLoss()
+
 
     # train_dataset = Volumes(train_dir)
     train_dataset = VolumesFromList(data_dir, patientList_dir, valFold=val_fold, testingHoldoutFold=test_fold, test=False)
@@ -240,6 +243,9 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         batch_size=batch_size,
         shuffle=True
     )
+
+    trainIDs = train_dataset.getTrainIDs()
+    print(trainIDs)
 
     # test_dataset = Volumes(test_dir)
     holdout = False
@@ -251,6 +257,12 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
         batch_size=batch_size,
         shuffle=False
     )
+
+    if holdout:
+        testIDs = test_dataset.getTestIDs()
+    else:
+        testIDs = test_dataset.getValIDs()
+    print(testIDs)
 
     g_scaler = torch.cuda.amp.GradScaler()
     d_scaler = torch.cuda.amp.GradScaler()
@@ -337,6 +349,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                 G_loss, G_Dcomp_loss_train, voxel_loss_train, masked_voxel_loss_train, y_fake = getGLoss(g, d, real_dose, oars,
                                                                                                alt_condition, est_dose, adv_criterion,
                                                                                                voxel_criterion, alpha, beta, loss_type=="V20")
+
             #Update gen less often than disc if g_update_ratio > 1
             if round(d_update_ratio) <= 1:
                 if epoch % round(1/d_update_ratio) == 0:
@@ -438,6 +451,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
                     os.path.join(images_save_path, str(j) + "_epoch" + str(epoch) + ".png"),
                     labels=["Fake", "Real", "Condition"])
                 writer.add_figure("Images from Testing Set " + str(j), plot, epoch)
+                plt.close(plot)
 
         # Logging
         writer.add_scalar('LossG/train', G_loss, epoch)
@@ -578,7 +592,7 @@ if __name__ == '__main__':
                                                     }
 
                                                     #exp_name = f'dLR={d_lr}_Lo={loss_type}_gLR={g_lr}_A={alpha}_B={beta}_DUR={d_update_ratio}_BtSz={batch_size}_At={generator_attention}_Con={c}_AdvLo={adv_loss_type}_PrTD={pretrain_disc}_PrTDEp={pretrain_disc_epoch}_DLLKS={disc_last_layer_ks}'
-                                                    exp_name = f'dLR={d_lr}_gLR={g_lr}_A={alpha}_B={beta}_Con={c}_VF={val_fold}_TF={test_fold}'
+                                                    exp_name = f'dLR={d_lr}_gLR={g_lr}_A={alpha}_B={beta}_Con={c}_Lo={loss_type}z`_VF={val_fold}_TF={test_fold}'
                                                     print(params, exp_name)
                                                     train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
 

@@ -66,3 +66,6 @@ class VolumesFromList(Dataset):
 
     def getTestIDs(self):
         return self.testIDs
+
+    def getTrainIDs(self):
+        return self.trainIDs

@@ -289,10 +289,12 @@ class Discriminator(nn.Module):
 if __name__ == '__main__':
     #model = Generator(3, 1, True)
     #print(model.first_layer)
-    model = Discriminator(6, True)
-    x = torch.randn((4, 1, 96, 160, 160))
-    y = torch.randn((4, 1, 96, 160, 160))
-    z = torch.randn((4, 1, 96, 160, 160))
+    model = Discriminator(7, True)
+    x = torch.randn((4, 1, 92, 152, 152))
+    y = torch.randn((4, 1, 92, 152, 152))
+    z = torch.randn((4, 1, 92, 152, 152))
+
+    print(torch.randn_like(x) * 0.1 + 0.9)
     #
     device = torch.device('cuda:0')
     x = x.to(device)
