@@ -19,13 +19,19 @@ class Volumes(Dataset):
 
 
 class VolumesFromList(Dataset):
-    def __init__(self, dataDirectory, patientListDirectory, valFold, testingHoldoutFold, test=False, holdout=False):
+    def __init__(self, dataDirectory, patientListDirectory, singleLesionList, valFold, testingHoldoutFold, test=False, holdout=False):
         self.dataDirectory = dataDirectory
         self.test = test
         self.holdout = holdout
         self.trainIDs = []
         self.valIDs = []
         self.testIDs = []
+
+        with open(singleLesionList) as f:
+            lines = f.read().splitlines()
+            for l in lines:
+                self.trainIDs.append(l)
+
         for i in range(5):
             filePath = os.path.join(patientListDirectory, "fold" + str(i) + ".txt")
             with open(filePath) as f:

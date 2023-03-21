@@ -177,7 +177,7 @@ def getGLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_crite
 
     return G_loss, G_Dcomp_loss_train, G_voxel_loss, G_masked_G_voxel_loss, y_fake
 
-def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
+def train(data_dir, patientList_dir, singleLesionList, save_dir, exp_name_base, exp_name, params):
     num_epochs = params["num_epochs"]
     alpha = params["alpha"]
     beta = params["beta"]
@@ -241,7 +241,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
 
 
     # train_dataset = Volumes(train_dir)
-    train_dataset = VolumesFromList(data_dir, patientList_dir, valFold=val_fold, testingHoldoutFold=test_fold, test=False)
+    train_dataset = VolumesFromList(data_dir, patientList_dir, singleLesionList, valFold=val_fold, testingHoldoutFold=test_fold, test=False)
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -255,7 +255,7 @@ def train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params):
     holdout = False
     if val_fold == -1:
         holdout = True
-    test_dataset = VolumesFromList(data_dir, patientList_dir, valFold=val_fold, testingHoldoutFold=test_fold, test=True, holdout=holdout)
+    test_dataset = VolumesFromList(data_dir, patientList_dir, singleLesionList, valFold=val_fold, testingHoldoutFold=test_fold, test=True, holdout=holdout)
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
@@ -494,6 +494,7 @@ if __name__ == '__main__':
     data_dir = config.DATA_DIR
     patientList_dir = config.PATIENT_LIST_DIR
     save_dir = config.SAVE_DIR
+    singleLesionList = config.SINGLE_PATIENT_LIST_PATH
 
     if len(sys.argv) > 1:
         parser = argparse.ArgumentParser()
@@ -598,7 +599,7 @@ if __name__ == '__main__':
                                                     #exp_name = f'dLR={d_lr}_Lo={loss_type}_gLR={g_lr}_A={alpha}_B={beta}_DUR={d_update_ratio}_BtSz={batch_size}_At={generator_attention}_Con={c}_AdvLo={adv_loss_type}_PrTD={pretrain_disc}_PrTDEp={pretrain_disc_epoch}_DLLKS={disc_last_layer_ks}'
                                                     exp_name = f'dLR={d_lr}_gLR={g_lr}_A={alpha}_B={beta}_Con={c}_Lo={loss_type}_VF={val_fold}_TF={test_fold}'
                                                     print(params, exp_name)
-                                                    train(data_dir, patientList_dir, save_dir, exp_name_base, exp_name, params)
+                                                    train(data_dir, patientList_dir, singleLesionList, save_dir,  exp_name_base, exp_name, params)
 
                                                     runNum += 1
 
