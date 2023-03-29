@@ -413,6 +413,7 @@ def train(data_dir, patientList_dir, singleLesionList, save_dir, exp_name_base, 
                     alt_condition_test = alt_condition_test.cuda()
                     real_dose_test = real_dose_test.cuda()
                     est_dose_test = est_dose_test.cuda()
+                    oars_test = oars_test.cuda()
 
                     D_loss_test, D_real_loss_test, D_fake_loss_test = getDLoss(g, d, real_dose_test, oars_test, alt_condition_test, est_dose_test, adv_criterion)
 
