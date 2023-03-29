@@ -148,7 +148,7 @@ def getDLoss(g, d, real_dose, oars, alt_condition, disc_alt_condition, adv_crite
     #print("D_real: ", torch.mean(D_real))
     #Implementing one sided label smoothing
     #D_real_loss = adv_criterion(D_real, torch.ones_like(D_real))
-    D_real_loss = adv_criterion(D_real, torch.randn_like(D_real) * 0.1 + 0.9)
+    D_real_loss = adv_criterion(D_real, torch.randn_like(D_real) * 0.1 + 0.9) #Implementing one sided label smoothing
     y_fake = g(alt_condition, oars)
     D_fake = d(y_fake.detach(), disc_alt_condition, oars)
 
@@ -312,19 +312,21 @@ def train(data_dir, patientList_dir, singleLesionList, save_dir, exp_name_base, 
         for idx, volumes in enumerate(train_loader):
             real_dose = volumes[:, 0, :, :, :].unsqueeze(1).float()
             est_dose = volumes[:, 1, :, :, :].unsqueeze(1).float()
+            oars = volumes[:, 2, :, :, :].unsqueeze(1).float()
+            ct = volumes[:, 3, :, :, :].unsqueeze(1).float()
+            prescription = volumes[:, 4, :, :, :].unsqueeze(1).float()
+
             #order of stack is: [real dose; estimated dose; oars; CT; Prescription]
             if alt_condition_volume == "ED": #ED only
                 alt_condition = est_dose
             elif alt_condition_volume == "CT": #prescription and ct
-                alt_condition = torch.cat((volumes[:, 4, :, :, :].unsqueeze(1).float(), volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
+                alt_condition = torch.cat((prescription, ct), dim=1)
             elif alt_condition_volume == "EDCT":  #ED and CT
-                alt_condition = torch.cat(
-                    (est_dose, volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
+                alt_condition = torch.cat((est_dose, ct), dim=1)
             else:
                 raise Exception("Check alternative condition volume")
 
             alt_condition = alt_condition.cuda()
-            oars = volumes[:, 2, :, :, :].unsqueeze(1).float()
 
             est_dose = est_dose.cuda()
             real_dose = real_dose.cuda()
@@ -395,20 +397,21 @@ def train(data_dir, patientList_dir, singleLesionList, save_dir, exp_name_base, 
                 with torch.no_grad():
                     real_dose_test = test_volumes[:, 0, :, :, :].unsqueeze(1).float()
                     est_dose_test = test_volumes[:, 1, :, :, :].unsqueeze(1).float()
+                    oars_test = test_volumes[:, 2, :, :, :].unsqueeze(1).float()
+                    ct_test = test_volumes[:, 3, :, :, :].unsqueeze(1).float()
+                    prescription_test = test_volumes[:, 4, :, :, :].unsqueeze(1).float()
                     if alt_condition_volume == "ED": #ED only
                         alt_condition_test = est_dose_test
                     elif alt_condition_volume == "CT": #Prescription and CT
-                        alt_condition_test = torch.cat((test_volumes[:, 4, :, :, :].unsqueeze(1).float(), test_volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
+                        alt_condition_test = torch.cat((prescription_test, ct_test), dim=1)
                     elif alt_condition_volume == "EDCT": #ED and CT
-                        alt_condition_test = torch.cat((est_dose_test,
-                                                        test_volumes[:, 3, :, :, :].unsqueeze(1).float()), dim=1)
+                        alt_condition_test = torch.cat((est_dose_test,ct_test), dim=1)
                     else:
                         raise Exception("Check alternative condition volume")
                     oars_test = test_volumes[:, 2, :, :, :].unsqueeze(1).float()
 
                     alt_condition_test = alt_condition_test.cuda()
                     real_dose_test = real_dose_test.cuda()
-                    oars_test = oars_test.cuda()
                     est_dose_test = est_dose_test.cuda()
 
                     D_loss_test, D_real_loss_test, D_fake_loss_test = getDLoss(g, d, real_dose_test, oars_test, alt_condition_test, est_dose_test, adv_criterion)
