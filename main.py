@@ -205,12 +205,12 @@ def train(data_dir, patientList_dir, singleLesionList, save_dir, exp_name_base, 
                 }
 
     if generator_attention:
-        if alt_condition_volume == "ED":
+        if alt_condition_volume == "ED" or alt_condition_volume == "Pres":
             g = AttentionGenerator(2, 1)
         else:
             g = AttentionGenerator(3, 1)
     else:
-        if alt_condition_volume == "ED":
+        if alt_condition_volume == "ED" or alt_condition_volume == "Pres":
             g = Generator(2, 1)
         else:
             g = Generator(3, 1)
@@ -319,6 +319,8 @@ def train(data_dir, patientList_dir, singleLesionList, save_dir, exp_name_base, 
             #order of stack is: [real dose; estimated dose; oars; CT; Prescription]
             if alt_condition_volume == "ED": #ED only
                 alt_condition = est_dose
+            elif alt_condition_volume == "Pres": # Prescription Only
+                alt_condition = prescription
             elif alt_condition_volume == "CT": #prescription and ct
                 alt_condition = torch.cat((prescription, ct), dim=1)
             elif alt_condition_volume == "EDCT":  #ED and CT
@@ -402,6 +404,8 @@ def train(data_dir, patientList_dir, singleLesionList, save_dir, exp_name_base, 
                     prescription_test = test_volumes[:, 4, :, :, :].unsqueeze(1).float()
                     if alt_condition_volume == "ED": #ED only
                         alt_condition_test = est_dose_test
+                    elif alt_condition_volume == "Pres": #Prescription Only
+                        alt_condition_test = prescription_test
                     elif alt_condition_volume == "CT": #Prescription and CT
                         alt_condition_test = torch.cat((prescription_test, ct_test), dim=1)
                     elif alt_condition_volume == "EDCT": #ED and CT

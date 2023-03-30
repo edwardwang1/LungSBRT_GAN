@@ -93,8 +93,6 @@ class LPIPSLoss(torch.nn.Module):
                                 rounding_mode='floor'))
         d_index = int(flat_index % real.shape[2])
 
-
-
         # Ensure that indicies are at least Steps away from the edge
         steps = 2
 
