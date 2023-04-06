@@ -332,11 +332,12 @@ def train(data_dir, patientList_dir, singleLesionList, save_dir, exp_name_base, 
 
             est_dose = est_dose.cuda()
             real_dose = real_dose.cuda()
+            prescription = prescription.cuda()
             oars = oars.cuda()
 
             # Train Discriminator
             with torch.cuda.amp.autocast():
-                D_loss, D_real_loss, D_fake_loss = getDLoss(g, d, real_dose, oars, alt_condition, est_dose, adv_criterion)
+                D_loss, D_real_loss, D_fake_loss = getDLoss(g, d, real_dose, oars, alt_condition, prescription, adv_criterion)
 
             #Update disc less often than gen if d_update_ratio > 1
             if round(d_update_ratio) >= 1:
