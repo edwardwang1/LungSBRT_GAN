@@ -199,8 +199,9 @@ class AttentionGenerator(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
         )
 
-    def forward(self, x, cond):
-        x = torch.cat((x, cond), dim=1)
+    def forward(self, x, cond=None):
+        if cond:
+            x = torch.cat((x, cond), dim=1)
         x = self.first_layer(x)
         skip_connections = []
         for d in self.downs:
@@ -245,12 +246,12 @@ class AttentionGenerator(nn.Module):
         return x
 
 class Discriminator(nn.Module):
-    def __init__(self, last_conv_kernalsize=4, verbose=False):
+    def __init__(self, in_features=3, last_conv_kernalsize=4, verbose=False):
         super(Discriminator, self).__init__()
 
         self.verbose = verbose
 
-        num_features = [3, 16, 32, 64, 128]
+        num_features = [in_features, 16, 32, 64, 128]
 
         self.downs = nn.ModuleList()
         self.num_layers = len(num_features) - 1
@@ -262,9 +263,10 @@ class Discriminator(nn.Module):
             #nn.Sigmoid()
         )
 
-    def forward(self, x, alt_cond, oars):
+    def forward(self, x, alt_cond, oars=None):
         x = torch.cat((x, alt_cond), dim=1)
-        x = torch.cat((x, oars), dim=1)
+        if oars:
+            x = torch.cat((x, oars), dim=1)
 
         for d in self.downs:
             x = d(x)
@@ -287,14 +289,13 @@ class Discriminator(nn.Module):
         return x
 
 if __name__ == '__main__':
-    #model = Generator(3, 1, True)
+    model = Generator(3, 1, True)
     #print(model.first_layer)
-    model = Discriminator(7, True)
-    x = torch.randn((4, 1, 92, 152, 152))
+    #model = Discriminator(7, True)
+    x = torch.randn((4, 2, 92, 152, 152))
     y = torch.randn((4, 1, 92, 152, 152))
     z = torch.randn((4, 1, 92, 152, 152))
 
-    print(torch.randn_like(x) * 0.1 + 0.9)
     #
     device = torch.device('cuda:0')
     x = x.to(device)
@@ -302,5 +303,5 @@ if __name__ == '__main__':
     z = z.to(device)
     model.to(device)
 
-    out = model(x, y, z)
+    out = model(x, y)
 
