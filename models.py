@@ -200,7 +200,7 @@ class AttentionGenerator(nn.Module):
         )
 
     def forward(self, x, cond=None):
-        if cond:
+        if cond is not None:
             x = torch.cat((x, cond), dim=1)
         x = self.first_layer(x)
         skip_connections = []
@@ -265,7 +265,7 @@ class Discriminator(nn.Module):
 
     def forward(self, x, alt_cond, oars=None):
         x = torch.cat((x, alt_cond), dim=1)
-        if oars:
+        if oars is not None:
             x = torch.cat((x, oars), dim=1)
 
         for d in self.downs:
@@ -289,18 +289,17 @@ class Discriminator(nn.Module):
         return x
 
 if __name__ == '__main__':
-    model = Generator(3, 1, True)
+    model = AttentionGenerator(3, 1)
     #print(model.first_layer)
     #model = Discriminator(7, True)
-    x = torch.randn((4, 2, 92, 152, 152))
-    y = torch.randn((4, 1, 92, 152, 152))
-    z = torch.randn((4, 1, 92, 152, 152))
+    x = torch.randn((1, 2, 92, 152, 152))
+    y = torch.randn((1, 1, 92, 152, 152))
+
 
     #
     device = torch.device('cuda:0')
     x = x.to(device)
     y = y.to(device)
-    z = z.to(device)
     model.to(device)
 
     out = model(x, y)

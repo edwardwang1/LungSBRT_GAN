@@ -12,7 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 # Custom
 from models import Generator, Discriminator, AttentionGenerator
 from loss import GDL, V20Loss, LPIPSLoss
-from dataset import VolumesFromList
+from dataset import VolumesFromList, VolumesFromListCV
 from config import load_config
 
 import matplotlib
@@ -241,7 +241,10 @@ def train(data_dir, patientList_dir, singleLesionList, save_dir, exp_name_base, 
 
 
     # train_dataset = Volumes(train_dir)
-    train_dataset = VolumesFromList(data_dir, patientList_dir, singleLesionList, valFold=val_fold, testingHoldoutFold=test_fold, test=False)
+    if use_cv_folds:
+        train_dataset = VolumesFromListCV(data_dir, patientList_dir, singleLesionList, valFold=val_fold, testingHoldoutFold=test_fold, test=False)
+    else:
+        train_dataset = VolumesFromList(data_dir, patientList_dir, singleLesionList, valFold=val_fold, testingHoldoutFold=test_fold, test=False)
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -249,13 +252,16 @@ def train(data_dir, patientList_dir, singleLesionList, save_dir, exp_name_base, 
     )
 
     trainIDs = train_dataset.getTrainIDs()
-    print(trainIDs)
+    print("train IDs", trainIDs)
 
     # test_dataset = Volumes(test_dir)
     holdout = False
     if val_fold == -1:
         holdout = True
-    test_dataset = VolumesFromList(data_dir, patientList_dir, singleLesionList, valFold=val_fold, testingHoldoutFold=test_fold, test=True, holdout=holdout)
+    if use_cv_folds:
+        test_dataset = VolumesFromListCV(data_dir, patientList_dir, singleLesionList, valFold=val_fold, testingHoldoutFold=test_fold, test=True, holdout=holdout)
+    else:
+        test_dataset = VolumesFromList(data_dir, patientList_dir, singleLesionList, valFold=val_fold, testingHoldoutFold=test_fold, test=True, holdout=holdout)
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
@@ -266,7 +272,7 @@ def train(data_dir, patientList_dir, singleLesionList, save_dir, exp_name_base, 
         testIDs = test_dataset.getTestIDs()
     else:
         testIDs = test_dataset.getValIDs()
-    print(testIDs)
+    print("test IDs", testIDs)
 
     g_scaler = torch.cuda.amp.GradScaler()
     d_scaler = torch.cuda.amp.GradScaler()
@@ -525,6 +531,7 @@ if __name__ == '__main__':
         parser.add_argument("--disc_last_layer_ks", type=int)
         parser.add_argument("--val_fold", type=int)
         parser.add_argument("--test_fold", type=int)
+        parser.add_argument("--use_cv_folds", action=argparse.BooleanOptionalAction)
 
         #parser.add_argument("--recalc_fake", action=argparse.BooleanOptionalAction)
 
@@ -549,6 +556,7 @@ if __name__ == '__main__':
         disc_last_layer_ksizes = [args.disc_last_layer_ks]
         val_fold = [args.val_fold]
         test_fold = [args.test_fold]
+        use_cv_folds = args.use_cv_folds
 
     else:
         num_epochs = config.NUM_EPOCHS
@@ -570,6 +578,7 @@ if __name__ == '__main__':
         disc_last_layer_ksizes = config.DISC_LAST_LAYER_KS
         val_folds = config.VAL_FOLDS
         test_folds = config.TEST_FOLDS
+        use_cv_folds = config.USE_CV_Folds
 
     runNum = 0
     for alpha in alphas:
@@ -602,7 +611,8 @@ if __name__ == '__main__':
                                                         "pretrain_disc_epoch": pretrain_disc_epoch,
                                                         "disc_last_layer_ks": disc_last_layer_ks,
                                                         "val_fold": val_fold,
-                                                        "test_fold": test_fold
+                                                        "test_fold": test_fold,
+                                                        "use_cv_folds": use_cv_folds,
                                                     }
 
                                                     #exp_name = f'dLR={d_lr}_Lo={loss_type}_gLR={g_lr}_A={alpha}_B={beta}_DUR={d_update_ratio}_BtSz={batch_size}_At={generator_attention}_Con={c}_AdvLo={adv_loss_type}_PrTD={pretrain_disc}_PrTDEp={pretrain_disc_epoch}_DLLKS={disc_last_layer_ks}'
