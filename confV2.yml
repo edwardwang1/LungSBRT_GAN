@@ -1,0 +1,21 @@
+DATA_DIR: "P:/My Documents/LungTumourRadiotherapy/NumpyFilesV2/Stack"
+TRAIN_PATIENT_LIST: "P:/My Documents/LungTumourRadiotherapy/LungSBRT_GAN/Data/train_IDs.txt"
+TEST_PATIENT_LIST: "P:/My Documents/LungTumourRadiotherapy/LungSBRT_GAN/Data/val_IDs.txt"
+SAVE_DIR : "P:/My Documents/LungTumourRadiotherapy/LungSBRT_GAN/OutputV2"
+EXP_NAME : "TestingV2"
+ALT_CONDITION_VOLUME: ["EDCT"]
+GENERATOR_ATTENTION: True
+NUM_EPOCHS: 1
+BATCH_SIZE: 1
+ALPHA: [0.01]
+BETA: [0.1]
+LOSS_TYPE: ["l1"]
+ADV_LOSS_TYPE: ["ls"]
+D_UPDATE_RATIO: [0.1]
+G_LR: [2e-4]
+D_LR: [2e-4]
+RECALC_FAKE: False
+LOG_INTERVAL: 1
+PRETRAIN_DISC: False
+PRETRAIN_DISC_EPOCHS: [5]
+DISC_LAST_LAYER_KS: [4]
