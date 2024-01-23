@@ -206,6 +206,8 @@ def train(data_dir, train_list_path, test_list_path, save_dir, exp_name_base, ex
     if generator_attention:
         if alt_condition_volume == "ED" or alt_condition_volume == "Pres":
             g = AttentionGenerator(2, 1)
+        elif alt_condition_volume == "PTVChannels":
+            g = AttentionGenerator(7, 1)
         else:
             g = AttentionGenerator(3, 1)
     else:
@@ -237,7 +239,6 @@ def train(data_dir, train_list_path, test_list_path, save_dir, exp_name_base, ex
         voxel_criterion = V20Loss()
     elif loss_type == "lpips":
         voxel_criterion = LPIPSLoss()
-
 
 
     train_dataset = VolumesFromList(data_dir, train_list_path)
@@ -311,6 +312,13 @@ def train(data_dir, train_list_path, test_list_path, save_dir, exp_name_base, ex
                 alt_condition = torch.cat((prescription, ct), dim=1)
             elif alt_condition_volume == "EDCT":  #ED and CT
                 alt_condition = torch.cat((est_dose, ct), dim=1)
+            elif alt_condition_volume == "PTVChannels": #4th channel is PTV only in this case
+                ptv1 = volumes[:, 4, :, :, :].unsqueeze(1).float()
+                ptv2 = volumes[:, 5, :, :, :].unsqueeze(1).float()
+                ptv3 = volumes[:, 6, :, :, :].unsqueeze(1).float()
+                ptv4 = volumes[:, 7, :, :, :].unsqueeze(1).float()
+                ptv5 = volumes[:, 8, :, :, :].unsqueeze(1).float()
+                alt_condition = torch.cat((ct, ptv1, ptv2, ptv3, ptv4, ptv5), dim=1)
             else:
                 raise Exception("Check alternative condition volume")
 
@@ -397,6 +405,13 @@ def train(data_dir, train_list_path, test_list_path, save_dir, exp_name_base, ex
                         alt_condition_test = torch.cat((prescription_test, ct_test), dim=1)
                     elif alt_condition_volume == "EDCT": #ED and CT
                         alt_condition_test = torch.cat((est_dose_test,ct_test), dim=1)
+                    elif alt_condition_volume == "PTVChannels":  # 4th channel is PTV only in this case
+                        ptv1_test = test_volumes[:, 4, :, :, :].unsqueeze(1).float()
+                        ptv2_test = test_volumes[:, 5, :, :, :].unsqueeze(1).float()
+                        ptv3_test = test_volumes[:, 6, :, :, :].unsqueeze(1).float()
+                        ptv4_test = test_volumes[:, 7, :, :, :].unsqueeze(1).float()
+                        ptv5_test = test_volumes[:, 8, :, :, :].unsqueeze(1).float()
+                        alt_condition_test = torch.cat((ct_test, ptv1_test, ptv2_test, ptv3_test, ptv4_test, ptv5_test), dim=1)
                     else:
                         raise Exception("Check alternative condition volume")
                     oars_test = test_volumes[:, 2, :, :, :].unsqueeze(1).float()
